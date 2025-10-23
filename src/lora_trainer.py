@@ -17,7 +17,16 @@ from transformers import (
     DataCollatorForLanguageModeling,
     TrainerCallback
 )
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import (
+    LoraConfig,
+    PrefixTuningConfig,
+    PromptTuningConfig,
+    AdapterConfig,
+    IA3Config,
+    get_peft_model,
+    TaskType,
+    PeftType
+)
 
 # Try to import bitsandbytes for 8-bit optimizer
 try:
@@ -135,21 +144,36 @@ class MemoryMonitorCallback(TrainerCallback):
 
 
 class LoRATrainer:
-    """LoRA fine-tuning with CPU/GPU support"""
+    """PEFT-agnostic fine-tuning with CPU/GPU support (LoRA, Prefix Tuning, Prompt Tuning, Adapters, IA³)"""
 
     def __init__(
         self,
         model_path: str,
         output_dir: str = "./output",
+        peft_type: Literal["lora", "prefix", "prompt", "adapter", "ia3"] = "lora",
+        device: Literal["auto", "cpu", "cuda"] = "auto",
+        # LoRA-specific params
         lora_r: int = 8,
         lora_alpha: int = 16,
         lora_dropout: float = 0.05,
         target_modules: Optional[list] = None,
-        device: Literal["auto", "cpu", "cuda"] = "auto"
+        # Prefix tuning params
+        num_virtual_tokens: int = 30,
+        # Prompt tuning params
+        prompt_tuning_init: Literal["TEXT", "RANDOM"] = "RANDOM",
+        prompt_tuning_init_text: Optional[str] = None,
+        # Adapter params
+        adapter_reduction_factor: int = 16,
+        # IA³ params
+        ia3_target_modules: Optional[list] = None,
+        ia3_feedforward_modules: Optional[list] = None
     ):
         self.model_path = Path(model_path)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Store PEFT type
+        self.peft_type = peft_type
 
         # Detect device
         if device == "auto":
@@ -170,17 +194,81 @@ class LoRATrainer:
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
             print(f"GPU: {gpu_name} ({gpu_memory:.1f} GB)")
 
-        self.lora_config = LoraConfig(
-            r=lora_r,
-            lora_alpha=lora_alpha,
-            lora_dropout=lora_dropout,
-            target_modules=target_modules or ["q_proj", "v_proj", "k_proj", "o_proj"],
-            task_type=TaskType.CAUSAL_LM,
-            bias="none"
-        )
+        # Store PEFT config parameters
+        self.peft_config_params = {
+            # LoRA params
+            "lora_r": lora_r,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "target_modules": target_modules or ["q_proj", "v_proj", "k_proj", "o_proj"],
+            # Prefix tuning params
+            "num_virtual_tokens": num_virtual_tokens,
+            # Prompt tuning params
+            "prompt_tuning_init": prompt_tuning_init,
+            "prompt_tuning_init_text": prompt_tuning_init_text,
+            # Adapter params
+            "adapter_reduction_factor": adapter_reduction_factor,
+            # IA³ params
+            "ia3_target_modules": ia3_target_modules or ["q_proj", "v_proj", "k_proj"],
+            "ia3_feedforward_modules": ia3_feedforward_modules or ["down_proj", "up_proj"]
+        }
+
+        # Create PEFT config based on type
+        self.peft_config = self._create_peft_config()
 
         self.model = None
         self.tokenizer = None
+
+    def _create_peft_config(self):
+        """Create appropriate PEFT config based on peft_type"""
+        print(f"Initializing {self.peft_type.upper()} configuration...")
+
+        if self.peft_type == "lora":
+            return LoraConfig(
+                r=self.peft_config_params["lora_r"],
+                lora_alpha=self.peft_config_params["lora_alpha"],
+                lora_dropout=self.peft_config_params["lora_dropout"],
+                target_modules=self.peft_config_params["target_modules"],
+                task_type=TaskType.CAUSAL_LM,
+                bias="none"
+            )
+
+        elif self.peft_type == "prefix":
+            return PrefixTuningConfig(
+                num_virtual_tokens=self.peft_config_params["num_virtual_tokens"],
+                task_type=TaskType.CAUSAL_LM
+            )
+
+        elif self.peft_type == "prompt":
+            config_kwargs = {
+                "num_virtual_tokens": self.peft_config_params["num_virtual_tokens"],
+                "task_type": TaskType.CAUSAL_LM,
+                "prompt_tuning_init": self.peft_config_params["prompt_tuning_init"]
+            }
+            # Add init text if using TEXT initialization
+            if self.peft_config_params["prompt_tuning_init"] == "TEXT":
+                if self.peft_config_params["prompt_tuning_init_text"]:
+                    config_kwargs["prompt_tuning_init_text"] = self.peft_config_params["prompt_tuning_init_text"]
+                else:
+                    raise ValueError("prompt_tuning_init_text required when using TEXT initialization")
+
+            return PromptTuningConfig(**config_kwargs)
+
+        elif self.peft_type == "adapter":
+            return AdapterConfig(
+                reduction_factor=self.peft_config_params["adapter_reduction_factor"],
+                task_type=TaskType.CAUSAL_LM
+            )
+
+        elif self.peft_type == "ia3":
+            return IA3Config(
+                target_modules=self.peft_config_params["ia3_target_modules"],
+                feedforward_modules=self.peft_config_params["ia3_feedforward_modules"],
+                task_type=TaskType.CAUSAL_LM
+            )
+
+        else:
+            raise ValueError(f"Unsupported PEFT type: {self.peft_type}. Choose from: lora, prefix, prompt, adapter, ia3")
 
     def _setup_cpu_threads(self):
         """Setup optimal CPU threading for multi-core execution"""
@@ -216,7 +304,7 @@ class LoRATrainer:
         return batch_size
 
     def load_model(self, model_name_or_path: str = "mistralai/Mistral-7B-v0.1"):
-        """Load base model and apply LoRA with memory-aware settings"""
+        """Load base model and apply PEFT method with memory-aware settings"""
         print("Loading model...")
 
         # Setup CPU threading for optimal performance
@@ -272,17 +360,19 @@ class LoRATrainer:
             # Explicitly move to CPU
             self.model = self.model.to('cpu')
 
-        # Apply LoRA
-        print("Applying LoRA...")
-        self.model = get_peft_model(self.model, self.lora_config)
+        # Apply PEFT method
+        print(f"Applying {self.peft_type.upper()}...")
+        self.model = get_peft_model(self.model, self.peft_config)
 
-        # Enable gradient checkpointing after LoRA is applied
+        # Enable gradient checkpointing after PEFT is applied
         if hasattr(self.model, 'enable_input_require_grads'):
             self.model.enable_input_require_grads()
 
-        # Ensure LoRA parameters require gradients
+        # Ensure PEFT parameters require gradients
+        # Different PEFT methods use different naming conventions
+        peft_param_keywords = ['lora', 'prefix', 'prompt', 'adapter', 'ia3']
         for name, param in self.model.named_parameters():
-            if 'lora' in name.lower():
+            if any(keyword in name.lower() for keyword in peft_param_keywords):
                 param.requires_grad = True
 
         # Print trainable parameters
@@ -301,7 +391,7 @@ class LoRATrainer:
         logging_steps: int = 10,
         max_seq_length: int = 512
     ):
-        """Train LoRA adapter with memory-aware optimization"""
+        """Train PEFT adapter with memory-aware optimization"""
         if self.model is None:
             raise ValueError("Model not loaded. Call load_model() first.")
 
@@ -436,12 +526,12 @@ class LoRATrainer:
         if self.use_gpu:
             torch.cuda.empty_cache()
 
-        # Save LoRA adapter
-        adapter_path = self.output_dir / "lora_adapter"
+        # Save PEFT adapter
+        adapter_path = self.output_dir / f"{self.peft_type}_adapter"
         self.model.save_pretrained(adapter_path)
         self.tokenizer.save_pretrained(adapter_path)
 
-        print(f"LoRA adapter saved to: {adapter_path}")
+        print(f"{self.peft_type.upper()} adapter saved to: {adapter_path}")
 
         return adapter_path
 

@@ -343,12 +343,13 @@ class SOLLOLOrchestrator:
         base_model: str,
         teacher_outputs_dir: str,
         num_students: int = 4,
-        lora_config: Optional[Dict] = None
+        peft_type: str = "lora",
+        peft_config: Optional[Dict] = None
     ) -> List[str]:
         """
         Create student training tasks.
 
-        Students train PEFT/LoRA adapters on teacher-generated outputs.
+        Students train PEFT adapters (LoRA, Prefix Tuning, etc.) on teacher-generated outputs.
         Tasks are automatically distributed across nodes that have the
         student model available.
 
@@ -358,16 +359,22 @@ class SOLLOLOrchestrator:
             base_model: Ollama model name for students (e.g., 'qwen2.5:0.5b')
             teacher_outputs_dir: Directory with teacher-generated outputs
             num_students: Number of parallel student workers
-            lora_config: LoRA configuration (r, alpha, dropout)
+            peft_type: PEFT method to use (lora, prefix, prompt, adapter, ia3)
+            peft_config: PEFT-specific configuration (depends on peft_type)
 
         Returns:
             List of task IDs
         """
-        lora_config = lora_config or {
-            "r": 8,
-            "alpha": 16,
-            "dropout": 0.05
+        # Default configs for each PEFT type
+        default_configs = {
+            "lora": {"r": 8, "alpha": 16, "dropout": 0.05},
+            "prefix": {"num_virtual_tokens": 30},
+            "prompt": {"num_virtual_tokens": 30, "prompt_tuning_init": "RANDOM"},
+            "adapter": {"reduction_factor": 16},
+            "ia3": {}
         }
+
+        peft_config = peft_config or default_configs.get(peft_type, {})
 
         # Find nodes with this model
         matching_nodes = self.get_nodes_with_model(base_model)
@@ -397,8 +404,42 @@ class SOLLOLOrchestrator:
         task_ids = []
 
         for i in range(num_students):
+            # Build command with PEFT type and config
+            command = [
+                "python", "-m", "llamaforge.student_worker",
+                "--model", base_model,
+                "--teacher-outputs", teacher_outputs_dir,
+                "--student-id", str(i),
+                "--peft-type", peft_type
+            ]
+
+            # Add PEFT-specific parameters
+            if peft_type == "lora":
+                command.extend([
+                    "--lora-r", str(peft_config.get("r", 8)),
+                    "--lora-alpha", str(peft_config.get("alpha", 16)),
+                    "--lora-dropout", str(peft_config.get("dropout", 0.05))
+                ])
+            elif peft_type in ["prefix", "prompt"]:
+                command.extend([
+                    "--num-virtual-tokens", str(peft_config.get("num_virtual_tokens", 30))
+                ])
+                if peft_type == "prompt" and "prompt_tuning_init" in peft_config:
+                    command.extend([
+                        "--prompt-tuning-init", peft_config["prompt_tuning_init"]
+                    ])
+                    if peft_config.get("prompt_tuning_init_text"):
+                        command.extend([
+                            "--prompt-tuning-init-text", peft_config["prompt_tuning_init_text"]
+                        ])
+            elif peft_type == "adapter":
+                command.extend([
+                    "--adapter-reduction-factor", str(peft_config.get("reduction_factor", 16))
+                ])
+            # ia3 doesn't need extra params in command line (uses defaults)
+
             task_config = TaskConfig(
-                name=f"llamaforge_student_{i}",
+                name=f"llamaforge_student_{peft_type}_{i}",
                 type="training",
                 priority="normal",
                 resources=ResourceConfig(
@@ -411,15 +452,7 @@ class SOLLOLOrchestrator:
                     "allowed_nodes": [n['name'] for n in matching_nodes]
                 },
                 timeout_seconds=timeout_hours * 3600,
-                command=[
-                    "python", "-m", "llamaforge.student_worker",
-                    "--model", base_model,
-                    "--teacher-outputs", teacher_outputs_dir,
-                    "--student-id", str(i),
-                    "--lora-r", str(lora_config["r"]),
-                    "--lora-alpha", str(lora_config["alpha"]),
-                    "--lora-dropout", str(lora_config["dropout"])
-                ],
+                command=command,
                 checkpointing=True,
                 max_retries=3
             )
