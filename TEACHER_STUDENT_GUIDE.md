@@ -45,6 +45,7 @@ This guide shows you how to use LlamaForge's distributed teacher-student trainin
 ✅ **Load Balancing** - Multiple students distributed across available nodes automatically.
 ✅ **No Manual Config** - Nodes report their Ollama models, SOLLOL handles the rest.
 ✅ **Error Prevention** - Can't assign tasks to nodes without the required model.
+✅ **PEFT-Agnostic** - Use any PEFT method: LoRA, Prefix Tuning, Prompt Tuning, Adapters, or IA³.
 
 **Example:**
 ```python
@@ -132,6 +133,58 @@ python llamaforge_node.py --name student-cpu-01
 
 ---
 
+### Step 2.5: Choose Your PEFT Method
+
+LlamaForge supports **5 different PEFT (Parameter-Efficient Fine-Tuning) methods**:
+
+| Method | Trainable Params | Memory Usage | Best For |
+|--------|-----------------|--------------|----------|
+| **LoRA** | ~0.5-2% | Medium | General purpose, most popular |
+| **Prefix Tuning** | ~0.1-0.5% | Low | Fast training, smaller models |
+| **Prompt Tuning** | ~0.1% | Very Low | Task-specific adaptation |
+| **Adapter Tuning** | ~1-3% | Medium-High | Multi-task learning |
+| **IA³** | ~0.01-0.1% | Very Low | Extreme resource constraints |
+
+**All PEFT methods work identically with SOLLOL** - just change `peft_type` and `peft_config`!
+
+**Example - Switching PEFT Methods:**
+
+```python
+# LoRA (default, most popular)
+student_ids = orchestrator.create_student_tasks(
+    base_model="qwen2.5:0.5b",
+    teacher_outputs_dir="./teacher_outputs",
+    peft_type="lora",
+    peft_config={"r": 8, "alpha": 16, "dropout": 0.05}
+)
+
+# Prefix Tuning (very lightweight)
+student_ids = orchestrator.create_student_tasks(
+    base_model="qwen2.5:0.5b",
+    teacher_outputs_dir="./teacher_outputs",
+    peft_type="prefix",
+    peft_config={"num_virtual_tokens": 30}
+)
+
+# IA³ (extremely lightweight, minimal memory)
+student_ids = orchestrator.create_student_tasks(
+    base_model="qwen2.5:0.5b",
+    teacher_outputs_dir="./teacher_outputs",
+    peft_type="ia3",
+    peft_config={}  # Uses defaults
+)
+```
+
+**When to use each method:**
+- **LoRA**: Start here. Works well for most use cases.
+- **Prefix/Prompt**: When you need faster training or lower memory.
+- **Adapter**: When training multiple tasks simultaneously.
+- **IA³**: When running on very limited hardware (4-8GB RAM).
+
+See `examples/distributed/peft_methods_example.py` for complete examples!
+
+---
+
 ### Step 3: Submit Teacher-Student Training Job
 
 Create a Python script to orchestrate the training:
@@ -184,7 +237,8 @@ student_task_ids = orchestrator.create_student_tasks(
     base_model="qwen2.5:0.5b",           # Smaller student model
     teacher_outputs_dir="./teacher_outputs",
     num_students=2,                      # Number of student nodes
-    lora_config={
+    peft_type="lora",                    # PEFT method (lora, prefix, prompt, adapter, ia3)
+    peft_config={                        # LoRA-specific config
         "r": 8,
         "alpha": 16,
         "dropout": 0.05
@@ -366,7 +420,8 @@ student_ids = orchestrator.create_student_tasks(
     base_model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     teacher_outputs_dir="./teacher_outputs",
     num_students=4,                   # 4 students training simultaneously
-    lora_config={"r": 16, "alpha": 32}  # Higher rank for better quality
+    peft_type="lora",
+    peft_config={"r": 16, "alpha": 32}  # Higher rank for better quality
 )
 ```
 
@@ -437,13 +492,23 @@ python llamaforge_node.py --no-register
 
 ### Out of Memory on Student
 
-Reduce batch size or use smaller model:
+Reduce batch size, use smaller model, or switch to lighter PEFT method:
 
 ```python
+# Option 1: Reduce LoRA parameters
 student_ids = orchestrator.create_student_tasks(
     base_model="qwen2.5:0.5b",  # Use smallest model
     num_students=1,              # Reduce students
-    lora_config={"r": 4}         # Lower LoRA rank
+    peft_type="lora",
+    peft_config={"r": 4}         # Lower LoRA rank
+)
+
+# Option 2: Switch to IA³ (extremely lightweight!)
+student_ids = orchestrator.create_student_tasks(
+    base_model="qwen2.5:0.5b",
+    num_students=1,
+    peft_type="ia3",             # Minimal memory footprint
+    peft_config={}
 )
 ```
 
@@ -453,9 +518,10 @@ student_ids = orchestrator.create_student_tasks(
 
 1. **Teacher batch size:** GPU can handle 16-32, start with 16
 2. **Student count:** 1 student per available CPU machine
-3. **LoRA rank:** Start with 8, increase to 16 for better quality
-4. **Checkpointing:** Enable for long runs (auto-resume on crash)
-5. **Dataset splitting:** For very large datasets, split manually first
+3. **PEFT method choice:** LoRA (versatile), Prefix (fast), IA³ (minimal RAM)
+4. **LoRA rank:** Start with 8, increase to 16 for better quality
+5. **Checkpointing:** Enable for long runs (auto-resume on crash)
+6. **Dataset splitting:** For very large datasets, split manually first
 
 ---
 
@@ -471,12 +537,19 @@ After running the teacher-student workflow:
 │   └── ...
 ├── output/
 │   ├── student_0/
-│   │   └── lora_adapter/   # Student 0 trained adapter
+│   │   └── lora_adapter/   # Student 0 trained adapter (LoRA)
 │   └── student_1/
-│       └── lora_adapter/   # Student 1 trained adapter
+│       └── lora_adapter/   # Student 1 trained adapter (LoRA)
 └── merged_model/
     └── final_adapter/      # Averaged/merged adapter (optional)
 ```
+
+**Note:** Adapter directory name depends on PEFT method:
+- `lora_adapter/` for LoRA
+- `prefix_adapter/` for Prefix Tuning
+- `prompt_adapter/` for Prompt Tuning
+- `adapter_adapter/` for Adapter Tuning
+- `ia3_adapter/` for IA³
 
 ---
 
