@@ -260,7 +260,7 @@ def interactive_setup():
                 print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}...and {len(ollama_models) - models_per_page} more (enter 'list' to see all){C.END}")
 
             print(f"{C.MAGENTA}└─{C.END}")
-            print(f"\n{C.MATRIX_DIM}Commands: 'list' = show all models | model number | model name | HF model{C.END}")
+            print(f"\n{C.MATRIX_DIM}Commands: 'list' or 'ollama list' = show all models | model number | model name | HF model{C.END}")
 
             # Ask user choice
             model_input = prompt_input(
@@ -268,8 +268,8 @@ def interactive_setup():
                 default="1"
             )
 
-            # Handle 'list' command
-            if model_input.lower() == 'list':
+            # Handle 'list' or 'ollama list' command
+            if model_input.lower() in ['list', 'ollama list']:
                 print(f"\n{C.MAGENTA}{C.BOLD}┌─ All Ollama Models{C.END}")
                 for i, model in enumerate(ollama_models, 1):
                     print(f"{C.MAGENTA}├─{C.END} {C.YELLOW}{i:2d}.{C.END} {C.MATRIX_GREEN}{model['name']:<35}{C.END} {C.MATRIX_DIM}{model['size']}{C.END}")
