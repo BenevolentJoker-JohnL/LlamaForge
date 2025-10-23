@@ -17,6 +17,13 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model, TaskType
 
+# Try to import bitsandbytes for 8-bit optimizer
+try:
+    import bitsandbytes as bnb
+    HAS_BITSANDBYTES = True
+except ImportError:
+    HAS_BITSANDBYTES = False
+
 
 class LoRATrainer:
     """LoRA fine-tuning with CPU/GPU support"""
@@ -187,7 +194,15 @@ class LoRATrainer:
         else:
             num_workers = 0
 
-        # Training arguments optimized for device
+        # Choose optimizer based on available memory and bitsandbytes
+        if HAS_BITSANDBYTES:
+            optimizer = "adamw_bnb_8bit"  # 8-bit Adam - uses ~75% less memory
+            print("Using 8-bit AdamW optimizer (saves ~75% memory)")
+        else:
+            optimizer = "adamw_torch"
+            print("Using standard AdamW optimizer (install bitsandbytes for 8-bit)")
+
+        # Training arguments optimized for device with aggressive memory saving
         training_args = TrainingArguments(
             output_dir=str(self.output_dir),
             num_train_epochs=num_epochs,
@@ -198,16 +213,22 @@ class LoRATrainer:
             bf16=use_bf16,
             logging_steps=logging_steps,
             save_steps=save_steps,
-            save_total_limit=3,
+            save_total_limit=1,  # Reduced from 3 to save disk space
             remove_unused_columns=False,
             dataloader_num_workers=num_workers,
             warmup_steps=10,
             weight_decay=0.01,
             logging_dir=str(self.output_dir / "logs"),
             report_to="none",  # Disable wandb/tensorboard
-            # GPU-specific optimizations
-            gradient_checkpointing=self.use_gpu,  # Save VRAM on GPU
-            optim="adamw_torch" if not self.use_gpu else "adamw_torch_fused"  # Faster on GPU
+            # Memory optimizations
+            gradient_checkpointing=True,  # Always enable for memory saving
+            optim=optimizer,  # 8-bit or standard optimizer
+            max_grad_norm=1.0,
+            # CPU-specific memory optimizations
+            dataloader_pin_memory=False,  # Don't pin memory on CPU
+            torch_compile=False,  # Disable torch compile for memory
+            # Save strategy
+            save_strategy="epoch"
         )
 
         # Data collator
