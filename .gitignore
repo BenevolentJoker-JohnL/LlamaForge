@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Model files and outputs
+*.gguf
+*.bin
+*.safetensors
+output/
+outputs/
+lora_output/
+merged_model/
+offload/
+gguf_models/
+gguf_extracted/
+hf_model*/
+test_work/
+work_dir/
+*.log
+
+# Datasets (keep examples)
+testtraindata/*.jsonl
+testtraindata/*.csv
+testtraindata/*.txt
+!testtraindata/practical_coding.jsonl
+
+# Cache
+.cache/
+*.cache
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Huggingface cache (don't upload)
+.huggingface/
+
+# Training artifacts
+checkpoint-*/
+runs/
+wandb/

@@ -1,0 +1,18 @@
+[
+  {
+    "question": "What is machine learning?",
+    "answer": "Machine learning is a subset of artificial intelligence that enables systems to learn and improve from experience without being explicitly programmed. It uses algorithms to identify patterns in data."
+  },
+  {
+    "question": "What is the difference between supervised and unsupervised learning?",
+    "answer": "Supervised learning uses labeled data to train models, while unsupervised learning finds patterns in unlabeled data. Supervised learning is for prediction tasks, unsupervised for discovering hidden structures."
+  },
+  {
+    "question": "What is a neural network?",
+    "answer": "A neural network is a computational model inspired by biological neural networks. It consists of interconnected nodes (neurons) organized in layers that process and transform input data to produce outputs."
+  },
+  {
+    "question": "What is overfitting in machine learning?",
+    "answer": "Overfitting occurs when a model learns the training data too well, including its noise and outliers, resulting in poor performance on new, unseen data. It's solved through regularization, cross-validation, or more training data."
+  }
+]
