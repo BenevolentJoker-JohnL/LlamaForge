@@ -353,7 +353,10 @@ def interactive_setup():
                     config['ollama_model'] = ollama_name
                     config['model_info'] = model_info
                 else:
-                    config['model'] = model_input
+                    # Invalid model number
+                    print_error(f"Invalid model number: {idx + 1}. Must be between 1 and {len(ollama_models)}")
+                    print_info("Please enter a valid model number, 'list' to see all, or a HuggingFace model name")
+                    return None
             except ValueError:
                 # Not a number, treat as model name
                 if ':' in model_input:  # Looks like Ollama format
