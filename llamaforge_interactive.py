@@ -283,13 +283,44 @@ def interactive_setup():
                 print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}...and {len(ollama_models) - models_per_page} more (enter 'list' to see all){C.END}")
 
             print(f"{C.MAGENTA}└─{C.END}")
-            print(f"\n{C.MATRIX_DIM}Commands: 'list' or 'ollama list' = show all models | model number | model name | HF model{C.END}")
+            print(f"\n{C.MATRIX_DIM}Commands: 'help' or 'commands' for help | 'list' to see all models{C.END}")
 
             # Ask user choice
             model_input = prompt_input(
                 f"Enter model number (1-{min(models_per_page, len(ollama_models))}), command, or model name",
                 default="1"
             )
+
+            # Handle 'help' or 'commands' command
+            if model_input.lower() in ['help', 'commands', '?']:
+                print(f"\n{C.CYAN_BRIGHT}{C.BOLD}╔═══════════════════════════════════════════════════════════════╗{C.END}")
+                print(f"{C.CYAN_BRIGHT}{C.BOLD}║{C.END}                   {C.CYAN_BRIGHT}{C.BOLD}AVAILABLE COMMANDS{C.END}                         {C.CYAN_BRIGHT}{C.BOLD}║{C.END}")
+                print(f"{C.CYAN_BRIGHT}{C.BOLD}╚═══════════════════════════════════════════════════════════════╝{C.END}\n")
+
+                print(f"{C.MATRIX_BRIGHT}{C.BOLD}Model Selection:{C.END}")
+                print(f"  {C.YELLOW}1-{len(ollama_models)}{C.END}           Select model by number")
+                print(f"  {C.YELLOW}<model-name>{C.END}     Enter Ollama model name (e.g., qwen2.5:0.5b)")
+                print(f"  {C.YELLOW}<hf-model>{C.END}       Enter HuggingFace model (e.g., mistralai/Mistral-7B-v0.1)")
+                print()
+                print(f"{C.MATRIX_BRIGHT}{C.BOLD}Commands:{C.END}")
+                print(f"  {C.YELLOW}list{C.END}            Show all {len(ollama_models)} Ollama models with RAM estimates")
+                print(f"  {C.YELLOW}ollama list{C.END}     Same as 'list'")
+                print(f"  {C.YELLOW}help{C.END}            Show this help message")
+                print(f"  {C.YELLOW}commands{C.END}        Same as 'help'")
+                print(f"  {C.YELLOW}?{C.END}               Same as 'help'")
+                print()
+                print(f"{C.MATRIX_BRIGHT}{C.BOLD}Legend:{C.END}")
+                print(f"  {C.MATRIX_GREEN}✓{C.END}  Trainable   - Model fits comfortably in RAM (< 50% usage)")
+                print(f"  {C.YELLOW}⚠{C.END}  Tight       - Model uses 50-80% of available RAM")
+                print(f"  {C.RED}✗{C.END}  Too Large   - Model exceeds 80% of RAM (likely to fail)")
+                print()
+                print(f"{C.MATRIX_DIM}Tip: Use 'list' to see all models, then select by number{C.END}\n")
+
+                # Re-prompt
+                model_input = prompt_input(
+                    f"Enter model number (1-{min(models_per_page, len(ollama_models))}), command, or model name",
+                    default="1"
+                )
 
             # Handle 'list' or 'ollama list' command
             if model_input.lower() in ['list', 'ollama list']:
