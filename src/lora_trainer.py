@@ -27,6 +27,75 @@ except ImportError:
     HAS_BITSANDBYTES = False
 
 
+class CyberpunkProgressCallback(TrainerCallback):
+    """Cyberpunk-themed progress display with throbbers"""
+
+    # Throbber styles
+    THROBBERS = {
+        "dots": ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+        "matrix": ['▖', '▘', '▝', '▗'],
+        "pulse": ['◜', '◠', '◝', '◞', '◡', '◟'],
+        "arrow": ['←', '↖', '↑', '↗', '→', '↘', '↓', '↙'],
+    }
+
+    # Colors
+    CYAN = '\033[38;5;51m'
+    MATRIX_GREEN = '\033[38;5;46m'
+    MATRIX_DIM = '\033[38;5;28m'
+    YELLOW = '\033[38;5;226m'
+    MAGENTA = '\033[38;5;201m'
+    DIM = '\033[2m'
+    BOLD = '\033[1m'
+    END = '\033[0m'
+
+    def __init__(self, total_steps, use_gpu=False, style="matrix"):
+        self.total_steps = total_steps
+        self.use_gpu = use_gpu
+        self.style = style
+        self.throbber = self.THROBBERS.get(style, self.THROBBERS["matrix"])
+        self.frame_idx = 0
+        self.last_loss = None
+        self.last_lr = None
+
+    def on_step_end(self, args, state, control, **kwargs):
+        """Update progress with throbber"""
+        # Get current metrics
+        logs = kwargs.get('logs', {})
+        current_step = state.global_step
+
+        # Update throbber frame
+        self.frame_idx = (self.frame_idx + 1) % len(self.throbber)
+        spinner = self.throbber[self.frame_idx]
+
+        # Calculate progress
+        progress = (current_step / self.total_steps) * 100
+
+        # Build progress bar
+        bar_width = 40
+        filled = int(bar_width * current_step / self.total_steps)
+        bar = f"{self.MATRIX_GREEN}{'█' * filled}{self.MATRIX_DIM}{'░' * (bar_width - filled)}{self.END}"
+
+        # Get loss and learning rate if available
+        loss_str = f" Loss: {self.YELLOW}{logs.get('loss', self.last_loss or 0):.4f}{self.END}" if 'loss' in logs or self.last_loss else ""
+        lr_str = f" LR: {self.MAGENTA}{logs.get('learning_rate', self.last_lr or 0):.2e}{self.END}" if 'learning_rate' in logs or self.last_lr else ""
+
+        # Update last values
+        if 'loss' in logs:
+            self.last_loss = logs['loss']
+        if 'learning_rate' in logs:
+            self.last_lr = logs['learning_rate']
+
+        # Print progress line (overwrite previous)
+        print(f"\r{self.CYAN}{spinner}{self.END} {bar} {self.BOLD}{progress:5.1f}%{self.END} [{current_step}/{self.total_steps}]{loss_str}{lr_str}", end='', flush=True)
+
+        return control
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        """Print newline at end of epoch"""
+        print()  # New line after epoch
+        return control
+
+
 class MemoryMonitorCallback(TrainerCallback):
     """Callback to monitor memory usage and trigger garbage collection"""
 
@@ -310,13 +379,28 @@ class LoRATrainer:
             dataloader_pin_memory=False,  # Don't pin memory on CPU
             torch_compile=False,  # Disable torch compile for memory
             # Save strategy
-            save_strategy="epoch"
+            save_strategy="epoch",
+            # Disable tqdm for custom progress display
+            disable_tqdm=True,
+            logging_strategy="steps"
         )
 
         # Data collator
         data_collator = DataCollatorForLanguageModeling(
             tokenizer=self.tokenizer,
             mlm=False
+        )
+
+        # Calculate total steps for progress callback
+        num_samples = len(dataset)
+        steps_per_epoch = num_samples // (batch_size * gradient_accumulation_steps)
+        total_steps = steps_per_epoch * num_epochs
+
+        # Cyberpunk progress callback
+        progress_callback = CyberpunkProgressCallback(
+            total_steps=total_steps,
+            use_gpu=self.use_gpu,
+            style="matrix"  # Can be: dots, matrix, pulse, arrow
         )
 
         # Memory monitoring callback
@@ -331,16 +415,19 @@ class LoRATrainer:
             args=training_args,
             train_dataset=dataset,
             data_collator=data_collator,
-            callbacks=[memory_callback]
+            callbacks=[progress_callback, memory_callback]
         )
 
         # Train
         print("Starting training...")
+        print(f"[i] Total steps: {total_steps} ({steps_per_epoch} steps/epoch × {num_epochs} epochs)")
         if self.use_gpu:
-            print(f"Training on GPU with {'bfloat16' if use_bf16 else 'float16'} precision")
+            print(f"[i] Training on GPU with {'bfloat16' if use_bf16 else 'float16'} precision")
         else:
-            print("Training on CPU (this may take a while...)")
-            print("[i] Memory monitoring enabled - will show updates every 50 steps")
+            print("[i] Training on CPU (this may take a while...)")
+        print("[i] Progress: Cyberpunk throbber with real-time metrics")
+        print("[i] Memory: Monitoring enabled (updates every 50 steps)")
+        print()
 
         trainer.train()
 
