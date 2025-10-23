@@ -1,56 +1,63 @@
 # LlamaForge
 
-**Training-agnostic fine-tuning pipeline for GGUF models with CPU/GPU support**
+Fine-tuning pipeline for LLMs with LoRA, supporting CPU and GPU execution. Integrates with Ollama for model management and GGUF conversion.
 
-LlamaForge lets you fine-tune any LLM on any dataset with automatic GPU acceleration or CPU fallback. It automatically detects your Ollama models, structures raw datasets, trains with LoRA, and converts back to GGUF.
+## Overview
 
-## Features
+LlamaForge provides a streamlined workflow for fine-tuning large language models using Parameter-Efficient Fine-Tuning (PEFT) with LoRA. The system handles dataset preprocessing, training, and conversion to GGUF format for use with Ollama.
 
-- **🚀 Smart Hardware Detection**: Auto-detects GPU, falls back to CPU
-- **🧠 Memory-Aware Training**: Automatic batch size estimation and CPU/GPU hybrid offloading
-- **⚡ Multi-threaded CPU**: Optimizes all CPU cores for faster training
-- **📦 Ollama Integration**: Select from 80+ local Ollama models
-- **💾 Smart Caching**: Detects cached models - no unnecessary downloads
-- **📝 Training-Agnostic**: Drop in JSON, JSONL, CSV, or TXT — auto-structured for you
-- **🎯 GGUF Native**: Works directly with Ollama models, exports to GGUF
-- **⚡ LoRA Efficient**: Fast, memory-efficient fine-tuning with gradient checkpointing
-- **🎨 Cyberpunk UI**: Matrix-themed interactive wizard
+### Key Features
 
-## Quick Start
-
-### Interactive Mode (Recommended)
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Launch interactive wizard
-python llamaforge_interactive.py
-
-# The wizard will:
-# 1. Detect your 80+ Ollama models
-# 2. Show which are cached (instant) vs need download
-# 3. Let you browse and select datasets
-# 4. Configure training with clear explanations
-# 5. Train and export to GGUF
-```
-
-### Command Line Mode
-
-```bash
-# Fine-tune Mistral on your dataset
-python llamaforge.py \
-    --model mistralai/Mistral-7B-v0.1 \
-    --data ./data/training.jsonl \
-    --output ./finetuned-mistral.gguf
-```
+- **Automatic Hardware Detection**: GPU acceleration when available, CPU fallback otherwise
+- **Memory-Efficient Training**: LoRA fine-tuning with gradient checkpointing
+- **Flexible Dataset Loading**: Supports JSON, JSONL, CSV, and plain text formats
+- **Ollama Integration**: Detects locally available models and exports to GGUF
+- **CPU Optimization**: Multi-threaded CPU training with aggressive memory optimizations
+- **Interactive and CLI Modes**: Choose between guided wizard or direct command-line usage
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.8+
+- 16GB+ RAM (for 7B parameter models)
+- 50GB+ disk space (for models and checkpoints)
+- Ollama installed (optional, for model detection and deployment)
+
+### Setup
+
 ```bash
-git clone https://github.com/yourusername/LlamaForge.git
+git clone https://github.com/BenevolentJoker-JohnL/LlamaForge.git
 cd LlamaForge
 pip install -r requirements.txt
+```
+
+## Quick Start
+
+### Interactive Mode
+
+The interactive wizard guides you through model selection, dataset configuration, and training parameters:
+
+```bash
+python llamaforge_interactive.py
+```
+
+The wizard will:
+1. Scan for locally available Ollama models
+2. Help you select or specify a base model
+3. Configure dataset and training parameters
+4. Execute training and optional GGUF conversion
+
+### Command Line Mode
+
+For direct execution with known parameters:
+
+```bash
+python llamaforge.py \
+    --model mistralai/Mistral-7B-v0.1 \
+    --data train.jsonl \
+    --epochs 3 \
+    --output finetuned-model.gguf
 ```
 
 ## Usage
@@ -64,205 +71,292 @@ python llamaforge.py \
     --epochs 3
 ```
 
-### Custom Parameters
+### Advanced Configuration
 
 ```bash
 python llamaforge.py \
     --model meta-llama/Llama-2-7b-hf \
-    --data data.csv \
+    --data dataset.jsonl \
     --epochs 5 \
     --batch-size 2 \
+    --gradient-accumulation 4 \
     --learning-rate 1e-4 \
     --lora-r 16 \
+    --lora-alpha 32 \
     --max-length 1024 \
     --quantization q4_k_m \
-    --output my-finetuned-model.gguf
+    --output finetuned-model.gguf
 ```
 
-### Output as HuggingFace Format
+### Output Formats
 
+**GGUF (default)**: For Ollama deployment
 ```bash
-python llamaforge.py \
-    --model mistralai/Mistral-7B-v0.1 \
-    --data train.jsonl \
-    --no-gguf
+python llamaforge.py --model MODEL --data DATA --output model.gguf
+```
+
+**HuggingFace**: For further processing or deployment
+```bash
+python llamaforge.py --model MODEL --data DATA --no-gguf
 ```
 
 ## Dataset Formats
 
-LlamaForge automatically detects and structures these formats:
+LlamaForge automatically detects and processes multiple dataset formats.
 
-### JSON/JSONL
+### JSONL (Recommended)
 
-```json
+```jsonl
 {"prompt": "What is AI?", "completion": "Artificial Intelligence is..."}
 {"instruction": "Translate to French", "input": "Hello", "output": "Bonjour"}
 {"question": "What is 2+2?", "answer": "4"}
-{"text": "Your custom text here", "label": "positive"}
 ```
+
+Supported field combinations:
+- `prompt` + `completion`
+- `instruction` + `input` + `output`
+- `instruction` + `output`
+- `question` + `answer`
+- `text` (for continued pre-training)
 
 ### CSV
 
 ```csv
-input,output
+prompt,completion
 "What is AI?","Artificial Intelligence is..."
-"Hello","Bonjour"
+"Explain Python","Python is a programming language..."
 ```
 
 ### Plain Text
 
 ```
-Each line becomes a training sample
-Can be used for continued pre-training
-Or fine-tuning on specific text styles
+Each line is treated as a separate training example.
+Useful for continued pre-training on domain-specific text.
 ```
-
-## How It Works
-
-```
-[Your Dataset] → Auto-Structure → LoRA Training → Merge → GGUF
-                      ↓                 ↓            ↓       ↓
-                  Tokenize      CPU-Optimized  Apply LoRA  Ready!
-```
-
-1. **Dataset Loading**: Auto-detects format (JSON/CSV/TXT) and structures for training
-2. **LoRA Training**: Trains efficient adapters on CPU with optimized settings
-3. **Model Merging**: Merges LoRA weights with base model
-4. **GGUF Conversion**: Converts to quantized GGUF for Ollama
 
 ## Parameters
 
-### Required
-- `--model`: Base model (HuggingFace name or path)
-- `--data`: Training data file
+### Required Arguments
 
-### Training
-- `--epochs`: Number of epochs (default: 3)
-- `--batch-size`: Batch size (default: 1)
-- `--learning-rate`: Learning rate (default: 2e-4)
-- `--gradient-accumulation`: Accumulation steps (default: 4)
-- `--max-length`: Max sequence length (default: 512)
+| Argument | Description |
+|----------|-------------|
+| `--model` | Base model (HuggingFace identifier or local path) |
+| `--data` | Path to training dataset file |
 
-### LoRA
-- `--lora-r`: LoRA rank (default: 8)
-- `--lora-alpha`: LoRA alpha (default: 16)
-- `--lora-dropout`: Dropout rate (default: 0.05)
+### Training Configuration
 
-### Output
-- `--output`: Output file path
-- `--quantization`: GGUF quant method (q4_0, q4_k_m, q5_k_m, etc.)
-- `--no-gguf`: Skip GGUF conversion
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--epochs` | 3 | Number of training epochs |
+| `--batch-size` | 1 | Training batch size |
+| `--gradient-accumulation` | 4 | Gradient accumulation steps |
+| `--learning-rate` | 2e-4 | Learning rate |
+| `--max-length` | 512 | Maximum sequence length |
+
+### LoRA Configuration
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--lora-r` | 8 | LoRA rank (adapter dimension) |
+| `--lora-alpha` | 16 | LoRA scaling factor |
+| `--lora-dropout` | 0.05 | Dropout probability |
+
+### Output Configuration
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--output` | auto-generated | Output file path |
+| `--quantization` | q4_k_m | GGUF quantization method |
+| `--no-gguf` | False | Skip GGUF conversion |
+
+## Training Pipeline
+
+The system executes the following steps:
+
+1. **Model Loading**: Loads base model from HuggingFace or local cache
+2. **Dataset Processing**: Automatically detects format and structures data
+3. **LoRA Initialization**: Configures parameter-efficient adapters
+4. **Training**: Executes fine-tuning with gradient checkpointing
+5. **Adapter Merging**: Combines LoRA weights with base model
+6. **GGUF Conversion**: Quantizes and converts to GGUF format (if enabled)
+
+## Distributed Training
+
+LlamaForge supports distributed training across multiple nodes using PyTorch DDP and SOLLOL for node discovery.
+
+### Quick Start
+
+```bash
+# Automatic node discovery and launch
+python launch_distributed_training_direct.py \
+    --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+    --dataset examples/datasets/alpaca_1k.jsonl \
+    --epochs 1
+```
+
+For detailed distributed training setup, see [DISTRIBUTED_TRAINING_SOLLOL.md](DISTRIBUTED_TRAINING_SOLLOL.md).
+
+## Use with Ollama
+
+After training completes with GGUF output:
+
+```bash
+# Create Modelfile
+echo "FROM ./finetuned-model.gguf" > Modelfile
+
+# Import to Ollama
+ollama create my-finetuned-model -f Modelfile
+
+# Run inference
+ollama run my-finetuned-model "Your prompt here"
+```
 
 ## Examples
 
-### Fine-tune for Code Generation
+### Code Generation Fine-Tuning
 
 ```bash
 python llamaforge.py \
     --model codellama/CodeLlama-7b-hf \
-    --data code_examples.jsonl \
+    --data examples/datasets/code_alpaca_full.jsonl \
     --max-length 2048 \
-    --epochs 5
+    --epochs 3 \
+    --lora-r 16
 ```
 
-### Fine-tune for Classification
+### Instruction Following
 
 ```bash
-# CSV with text,label columns
 python llamaforge.py \
     --model mistralai/Mistral-7B-v0.1 \
-    --data sentiment.csv \
+    --data examples/datasets/alpaca_gpt4.jsonl \
     --epochs 3 \
-    --batch-size 2
-```
-
-### Fine-tune for Instruction Following
-
-```bash
-# JSONL with instruction/output pairs
-python llamaforge.py \
-    --model meta-llama/Llama-2-7b-hf \
-    --data instructions.jsonl \
-    --lora-r 16 \
     --learning-rate 1e-4
 ```
 
-## Use with Ollama
-
-After training, load into Ollama:
+### Chain-of-Thought Reasoning
 
 ```bash
-# Create Modelfile
-echo "FROM ./finetuned-mistral.gguf" > Modelfile
-
-# Create Ollama model
-ollama create my-finetuned-model -f Modelfile
-
-# Use it
-ollama run my-finetuned-model "Your prompt here"
+python llamaforge.py \
+    --model meta-llama/Llama-2-7b-hf \
+    --data examples/datasets/gsm8k_cot.jsonl \
+    --epochs 5 \
+    --max-length 1024
 ```
 
-## Architecture
+## Performance Characteristics
+
+### CPU Training
+
+- **7B Model**: ~2-4 hours per epoch (dataset and hardware dependent)
+- **Memory**: ~16-20GB RAM for 7B models with LoRA
+- **Optimization**: Automatic CPU core utilization and memory management
+
+### GPU Training
+
+- **7B Model**: ~15-30 minutes per epoch (on modern GPU)
+- **Memory**: ~12-16GB VRAM for 7B models
+- **Multiple GPUs**: Automatic data parallelism when available
+
+### Memory Management
+
+| Model Size | Minimum RAM | Recommended RAM |
+|------------|-------------|-----------------|
+| 1-3B | 8GB | 12GB |
+| 7B | 16GB | 24GB |
+| 13B | 32GB | 48GB |
+
+If encountering OOM errors:
+- Reduce `--batch-size` to 1
+- Decrease `--max-length`
+- Lower `--lora-r` (e.g., 4 or 8)
+- Increase `--gradient-accumulation`
+
+## Project Structure
 
 ```
 LlamaForge/
 ├── src/
-│   ├── dataset_loader.py    # Auto-structures datasets
-│   ├── lora_trainer.py       # CPU-optimized LoRA training
-│   ├── gguf_converter.py     # Merges & converts to GGUF
-│   └── gguf_extractor.py     # Extracts GGUF from Ollama
-├── examples/                  # Example datasets
-├── llamaforge.py             # Main CLI
+│   ├── lora_trainer.py          # Core training logic
+│   ├── dataset_loader.py        # Dataset preprocessing
+│   ├── gguf_converter.py        # GGUF conversion
+│   ├── ollama_utils.py          # Ollama integration
+│   └── sollol_integration.py    # Distributed training
+├── examples/
+│   └── datasets/                # Example datasets
+├── llamaforge.py                # Main CLI
+├── llamaforge_interactive.py    # Interactive wizard
+├── launch_distributed_training_direct.py  # Distributed launcher
 └── requirements.txt
 ```
 
-## Performance Tips
+## Documentation
 
-### CPU Training
-- Start with `--batch-size 1` and `--gradient-accumulation 4`
-- Reduce `--max-length` if RAM is limited
-- Use smaller LoRA rank (`--lora-r 4`) for faster training
-- Training time: ~1-3 hours per epoch on modern CPU (dataset dependent)
+- [Distributed Training Guide](DISTRIBUTED_TRAINING_SOLLOL.md) - Multi-node training setup
+- [Dataset Guide](DATASET_GUIDE.md) - Dataset preparation and formats
+- [Evaluation Guide](EVALUATION_GUIDE.md) - Model evaluation and testing
+- [SystemD Service Setup](SYSTEMD_SERVICE_SETUP.md) - Persistent worker configuration
 
-### Memory Usage
-- 7B model + LoRA: ~16-20GB RAM
-- 13B model: ~32GB RAM recommended
-- Reduce batch size or max length if OOM
+## Limitations
 
-## Requirements
+- **Model Support**: Primarily tested with Llama, Mistral, CodeLlama, and Qwen architectures
+- **Dataset Size**: In-memory loading may be problematic for very large datasets (>1GB)
+- **Quantization**: GGUF conversion requires llama.cpp compatibility
+- **Distributed Training**: Requires manual setup on worker nodes
 
-- Python 3.8+
-- 16GB+ RAM (for 7B models)
-- ~50GB disk space (for model + checkpoints)
+## Troubleshooting
 
-## Roadmap
+### Import Errors
 
-- [ ] Multi-GPU support
-- [ ] Streaming dataset loading for large files
-- [ ] Built-in dataset validation and stats
-- [ ] Web UI for monitoring training
-- [ ] Direct Ollama integration (no manual import)
-- [ ] Support for more model architectures
-- [ ] Automatic hyperparameter tuning
+Ensure all dependencies are installed:
+```bash
+pip install -r requirements.txt --upgrade
+```
+
+### Out of Memory
+
+Reduce memory usage:
+```bash
+python llamaforge.py \
+    --model MODEL \
+    --data DATA \
+    --batch-size 1 \
+    --max-length 256 \
+    --lora-r 4
+```
+
+### Slow Training
+
+For CPU training:
+- Use smaller batch sizes with higher gradient accumulation
+- Reduce max sequence length
+- Consider using a smaller base model
+
+### GGUF Conversion Fails
+
+Ensure llama.cpp is installed:
+```bash
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp && make
+```
 
 ## Contributing
 
-Contributions welcome! Please:
-1. Fork the repo
+Contributions are welcome. Please:
+
+1. Fork the repository
 2. Create a feature branch
-3. Submit a PR
+3. Add tests for new functionality
+4. Ensure existing tests pass
+5. Submit a pull request
 
 ## License
 
-MIT License - see LICENSE file
+MIT License - See LICENSE file for details
 
-## Credits
+## Acknowledgments
 
-Built with:
-- [Transformers](https://github.com/huggingface/transformers)
-- [PEFT](https://github.com/huggingface/peft)
-- [llama.cpp](https://github.com/ggerganov/llama.cpp)
-
----
-
-**LlamaForge**: Making fine-tuning accessible to everyone, one CPU at a time.
+- **PEFT/LoRA**: [HuggingFace PEFT](https://github.com/huggingface/peft)
+- **GGUF Conversion**: [llama.cpp](https://github.com/ggerganov/llama.cpp)
+- **Distributed Training**: [SOLLOL](https://github.com/BenevolentJoker-JohnL/SOLLOL)
+- **Model Runtime**: [Ollama](https://ollama.ai/)
