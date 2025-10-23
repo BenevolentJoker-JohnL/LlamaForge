@@ -56,8 +56,12 @@ class SOLLOLOrchestrator:
         self.client = None
         self.active_tasks = {}
 
-    def connect(self, host: str = "localhost", port: int = 5000):
+    def connect(self, host: str = None, port: int = None):
         """Connect to SOLLOL orchestration server"""
+        # Use provided params, or fall back to config, or use defaults
+        host = host or self.sollol_config.get("sollol_host", "localhost")
+        port = port or self.sollol_config.get("sollol_port", 5000)
+
         try:
             self.client = SOLLOLClient(host=host, port=port)
             print(f"[✓] Connected to SOLLOL at {host}:{port}")
@@ -67,17 +71,69 @@ class SOLLOLOrchestrator:
             return False
 
     def discover_nodes(self) -> List[Dict]:
-        """Discover available compute nodes"""
+        """
+        Discover available compute nodes and their Ollama models.
+
+        Shows GPU/CPU resources and which models are available on each node.
+        """
         if not self.client:
             raise RuntimeError("Not connected to SOLLOL. Call connect() first.")
 
         nodes = self.client.list_nodes()
-        print(f"[i] Discovered {len(nodes)} compute nodes")
+        print(f"[i] Discovered {len(nodes)} compute nodes\n")
 
         for node in nodes:
-            print(f"    - {node['name']}: {node['resources']}")
+            resources = node.get('resources', {})
+
+            # Display node info
+            print(f"    {node['name']}:")
+
+            # CPU/GPU/RAM
+            cpu = resources.get('cpu', {})
+            mem = resources.get('memory', {})
+            gpu = resources.get('gpu', {})
+
+            print(f"      • {cpu.get('cores', 0)} CPUs, "
+                  f"{mem.get('total_gb', 0):.1f}GB RAM, "
+                  f"{gpu.get('count', 0)} GPUs")
+
+            # Ollama models
+            ollama_models = resources.get('ollama_models', [])
+            if ollama_models:
+                print(f"      • Ollama models: {', '.join([m['name'] for m in ollama_models[:5]])}")
+                if len(ollama_models) > 5:
+                    print(f"        (+ {len(ollama_models) - 5} more)")
+            else:
+                print(f"      • No Ollama models detected")
+
+            print()
 
         return nodes
+
+    def get_nodes_with_model(self, model_name: str) -> List[Dict]:
+        """
+        Find all nodes that have a specific Ollama model available.
+
+        Args:
+            model_name: Ollama model name (e.g., 'qwen2.5:7b')
+
+        Returns:
+            List of nodes that have this model
+        """
+        if not self.client:
+            raise RuntimeError("Not connected to SOLLOL. Call connect() first.")
+
+        nodes = self.client.list_nodes()
+        matching_nodes = []
+
+        for node in nodes:
+            ollama_models = node.get('resources', {}).get('ollama_models', [])
+            model_names = [m.get('name', '') for m in ollama_models]
+
+            if model_name in model_names:
+                matching_nodes.append(node)
+
+        return matching_nodes
 
     def create_teacher_task(
         self,
@@ -93,9 +149,37 @@ class SOLLOLOrchestrator:
         The teacher loads the full model and generates predictions
         for the dataset, which are then used to train student models.
 
+        SOLLOL automatically assigns this task to a node that has
+        the specified model available, preferring GPU nodes.
+
+        Args:
+            model_path: Ollama model name (e.g., 'qwen2.5:7b')
+            dataset_path: Path to dataset file
+            output_dir: Directory for teacher outputs
+            batch_size: Inference batch size
+            max_samples: Optional limit on dataset samples
+
         Returns:
             task_id: Unique identifier for this task
         """
+        # Find nodes with this model
+        matching_nodes = self.get_nodes_with_model(model_path)
+
+        if not matching_nodes:
+            raise RuntimeError(
+                f"No nodes have model '{model_path}' available. "
+                f"Please pull the model on at least one node using: ollama pull {model_path}"
+            )
+
+        # Prefer GPU nodes for teacher (faster inference)
+        gpu_nodes = [n for n in matching_nodes if n.get('resources', {}).get('gpu', {}).get('count', 0) > 0]
+        preferred_nodes = gpu_nodes if gpu_nodes else matching_nodes
+
+        print(f"[i] Found {len(matching_nodes)} nodes with model '{model_path}'")
+        if gpu_nodes:
+            print(f"[i] Preferring GPU nodes for teacher task")
+
+        # Create task with node constraints
         task_config = TaskConfig(
             name="llamaforge_teacher",
             type="inference",
@@ -105,6 +189,10 @@ class SOLLOLOrchestrator:
                 cpu_cores=4,
                 ram_gb=32
             ),
+            node_constraints={
+                "ollama_model": model_path,  # Must have this model
+                "preferred_nodes": [n['name'] for n in preferred_nodes]
+            },
             command=[
                 "python", "-m", "llamaforge.teacher_worker",
                 "--model", model_path,
@@ -118,7 +206,12 @@ class SOLLOLOrchestrator:
         )
 
         task_id = self.client.submit_task(task_config)
-        self.active_tasks[task_id] = {"type": "teacher", "status": "submitted"}
+        self.active_tasks[task_id] = {
+            "type": "teacher",
+            "status": "submitted",
+            "model": model_path,
+            "assigned_nodes": [n['name'] for n in preferred_nodes]
+        }
 
         print(f"[✓] Teacher task created: {task_id}")
         return task_id
@@ -134,7 +227,16 @@ class SOLLOLOrchestrator:
         Create student training tasks.
 
         Students train PEFT/LoRA adapters on teacher-generated outputs.
-        Tasks are distributed across available nodes.
+        Tasks are automatically distributed across nodes that have the
+        student model available.
+
+        SOLLOL handles load balancing across available nodes.
+
+        Args:
+            base_model: Ollama model name for students (e.g., 'qwen2.5:0.5b')
+            teacher_outputs_dir: Directory with teacher-generated outputs
+            num_students: Number of parallel student workers
+            lora_config: LoRA configuration (r, alpha, dropout)
 
         Returns:
             List of task IDs
@@ -144,6 +246,22 @@ class SOLLOLOrchestrator:
             "alpha": 16,
             "dropout": 0.05
         }
+
+        # Find nodes with this model
+        matching_nodes = self.get_nodes_with_model(base_model)
+
+        if not matching_nodes:
+            raise RuntimeError(
+                f"No nodes have model '{base_model}' available. "
+                f"Please pull the model on at least one node using: ollama pull {base_model}"
+            )
+
+        print(f"[i] Found {len(matching_nodes)} nodes with model '{base_model}'")
+        print(f"[i] Distributing {num_students} student tasks across available nodes")
+
+        # If we have more students than nodes, that's fine - SOLLOL will queue them
+        if num_students > len(matching_nodes):
+            print(f"[i] Note: {num_students} students will be queued across {len(matching_nodes)} nodes")
 
         task_ids = []
 
@@ -157,6 +275,10 @@ class SOLLOLOrchestrator:
                     cpu_cores=2,
                     ram_gb=16
                 ),
+                node_constraints={
+                    "ollama_model": base_model,  # Must have this model
+                    "allowed_nodes": [n['name'] for n in matching_nodes]
+                },
                 command=[
                     "python", "-m", "llamaforge.student_worker",
                     "--model", base_model,
@@ -174,6 +296,7 @@ class SOLLOLOrchestrator:
             self.active_tasks[task_id] = {
                 "type": "student",
                 "student_id": i,
+                "model": base_model,
                 "status": "submitted"
             }
             task_ids.append(task_id)

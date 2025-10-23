@@ -9,22 +9,53 @@ This guide shows you how to use LlamaForge's distributed teacher-student trainin
 ## Architecture Overview
 
 ```
-                    ┌─────────────────┐
-                    │ SOLLOL Server   │
-                    │   (Dashboard)   │
-                    └────────┬────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-   ┌────▼─────┐        ┌────▼─────┐        ┌────▼─────┐
-   │ Teacher  │        │ Student  │        │ Student  │
-   │  Node    │        │  Node 1  │        │  Node 2  │
-   │ (GPU)    │        │ (CPU)    │        │ (CPU)    │
-   └──────────┘        └──────────┘        └──────────┘
+                    ┌─────────────────────────────────────┐
+                    │       SOLLOL Orchestrator           │
+                    │  • Discovers node capabilities      │
+                    │  • Auto-assigns tasks to nodes      │
+                    │  • Monitors resource usage          │
+                    └────────┬───────────────┬────────────┘
+                             │               │
+        ┌────────────────────┼───────────────┼────────────────────┐
+        │                    │               │                    │
+   ┌────▼─────┐        ┌────▼─────┐   ┌────▼─────┐        ┌────▼─────┐
+   │ Teacher  │        │ Student  │   │ Student  │        │ Student  │
+   │  Node    │        │  Node 1  │   │  Node 2  │        │  Node 3  │
+   │ (GPU)    │        │ (CPU)    │   │ (CPU)    │        │ (GPU)    │
+   │ qwen:7b  │        │ qwen:0.5b│   │ qwen:0.5b│        │ qwen:0.5b│
+   └──────────┘        └──────────┘   └──────────┘        └──────────┘
 ```
+
+**How It Works:**
+1. Each node registers with SOLLOL and reports available Ollama models
+2. You specify which models to use for teacher/student
+3. SOLLOL automatically assigns teacher tasks to nodes with teacher model (prefers GPU)
+4. SOLLOL automatically distributes student tasks to nodes with student model
+5. No manual node selection needed - it's all automatic!
 
 **Teacher:** Large model generates high-quality training outputs
 **Students:** Smaller models train on teacher's outputs (knowledge distillation)
+
+---
+
+## Key Features
+
+✅ **Automatic Model Distribution** - Just specify model names. SOLLOL finds nodes with those models.
+✅ **Smart Node Selection** - Teacher tasks prefer GPU nodes, students can use CPU.
+✅ **Load Balancing** - Multiple students distributed across available nodes automatically.
+✅ **No Manual Config** - Nodes report their Ollama models, SOLLOL handles the rest.
+✅ **Error Prevention** - Can't assign tasks to nodes without the required model.
+
+**Example:**
+```python
+# You just specify:
+orchestrator.create_teacher_task(model_path="qwen2.5:7b", ...)
+
+# SOLLOL automatically:
+# 1. Finds all nodes with qwen2.5:7b
+# 2. Prefers GPU nodes for faster inference
+# 3. Assigns task to best available node
+```
 
 ---
 
@@ -68,8 +99,11 @@ You should see:
 [✓] Registered with SOLLOL as 'teacher-gpu-01'
 [i] Dashboard: http://YOUR_IP:5000/dashboard
 [i] Resources: 8 CPUs, 31.3GB RAM, 1 GPUs
+[i] Detected 12 Ollama models on this node
 [✓] Starting heartbeat (every 30s)
 ```
+
+**Important:** Nodes automatically detect and report all Ollama models. SOLLOL uses this info to assign tasks.
 
 #### Node 2: Student (CPU Machine)
 ```bash

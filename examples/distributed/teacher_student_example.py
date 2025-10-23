@@ -88,6 +88,9 @@ def main():
         sys.exit(1)
 
     print()
+    print(f"[i] SOLLOL will automatically assign tasks based on model availability")
+    print(f"[i] Teacher tasks prefer GPU nodes, students can run on CPU")
+    print()
 
     # Step 3: Create teacher task
     print("[3/6] Creating teacher task...")

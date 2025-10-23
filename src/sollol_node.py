@@ -79,7 +79,8 @@ class LlamaForgeNode:
                 "available": torch.cuda.is_available(),
                 "count": 0,
                 "devices": []
-            }
+            },
+            "ollama_models": []
         }
 
         # Detect GPUs
@@ -95,6 +96,24 @@ class LlamaForgeNode:
                     "memory_gb": props.total_memory / (1024 ** 3),
                     "compute_capability": f"{props.major}.{props.minor}"
                 })
+
+        # Detect available Ollama models on this node
+        try:
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from src.ollama_utils import get_ollama_models, is_ollama_installed
+
+            if is_ollama_installed():
+                ollama_models = get_ollama_models()
+                resources["ollama_models"] = [
+                    {
+                        "name": model["name"],
+                        "size": model["size"]
+                    }
+                    for model in ollama_models
+                ]
+                print(f"[i] Detected {len(ollama_models)} Ollama models on this node")
+        except Exception as e:
+            print(f"[!] Warning: Could not detect Ollama models: {e}")
 
         return resources
 

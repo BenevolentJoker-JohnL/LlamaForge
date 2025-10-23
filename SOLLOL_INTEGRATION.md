@@ -6,10 +6,12 @@ LlamaForge now integrates with **SOLLOL** (Simple Orchestrated Loaned Local Olla
 
 ## Features
 
+✅ **Automatic Model Distribution** - Nodes report available Ollama models; tasks auto-assigned to nodes with required models
 ✅ **Teacher-Student Distillation** - One teacher model generates training data for multiple student models
 ✅ **Data-Parallel Training** - Split datasets across nodes for faster training
-✅ **Auto Resource Discovery** - Automatically detects GPUs, CPUs, and memory
+✅ **Auto Resource Discovery** - Automatically detects GPUs, CPUs, memory, and Ollama models
 ✅ **Dashboard Integration** - Real-time monitoring via SOLLOL web dashboard
+✅ **Smart Task Assignment** - Teacher tasks prefer GPU nodes, students distributed across available nodes
 ✅ **Fault Tolerance** - Automatic task retry and checkpointing
 ✅ **Resource Loaning** - Share compute resources across multiple training jobs
 
