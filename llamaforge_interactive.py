@@ -299,6 +299,84 @@ def print_device_info():
     print_info(f"CPU Cores: {cpu_count}")
 
 
+def show_sollol_cluster():
+    """Show SOLLOL cluster nodes and their available models"""
+    try:
+        from sollol_integration import create_distributed_training
+
+        print(f"\n{C.CYAN_BRIGHT}{C.BOLD}┌─ SOLLOL Cluster Status{C.END}")
+        print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_DIM}Connecting to SOLLOL orchestrator...{C.END}")
+
+        try:
+            orchestrator = create_distributed_training(mode="teacher_student", config={})
+            nodes = orchestrator.discover_nodes()
+
+            if not nodes:
+                print(f"{C.CYAN_BRIGHT}├─{C.END} {C.YELLOW}⚠{C.END} {C.MATRIX_DIM}No compute nodes registered{C.END}")
+                print(f"{C.CYAN_BRIGHT}├─{C.END}")
+                print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_DIM}To register a node:{C.END}")
+                print(f"{C.CYAN_BRIGHT}├─{C.END}   {C.MATRIX_GREEN}cd ~/LlamaForge{C.END}")
+                print(f"{C.CYAN_BRIGHT}├─{C.END}   {C.MATRIX_GREEN}python llamaforge_node.py --name my-node{C.END}")
+                print(f"{C.CYAN_BRIGHT}└─{C.END}\n")
+                return
+
+            # Show each node
+            print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_GREEN}✓{C.END} Found {len(nodes)} compute nodes")
+            print(f"{C.CYAN_BRIGHT}├─{C.END}")
+
+            for i, node in enumerate(nodes, 1):
+                resources = node.get('resources', {})
+                cpu = resources.get('cpu', {})
+                mem = resources.get('memory', {})
+                gpu = resources.get('gpu', {})
+                ollama_models = resources.get('ollama_models', [])
+
+                # Node header
+                node_type = f"{C.PURPLE}GPU{C.END}" if gpu.get('count', 0) > 0 else f"{C.MATRIX_DIM}CPU{C.END}"
+                print(f"{C.CYAN_BRIGHT}├─{C.END} {C.BOLD}[{i}] {node['name']}{C.END} ({node_type})")
+
+                # Resources
+                print(f"{C.CYAN_BRIGHT}│{C.END}   {C.MATRIX_DIM}├─{C.END} {cpu.get('cores', 0)} CPUs, "
+                      f"{mem.get('total_gb', 0):.1f}GB RAM, "
+                      f"{gpu.get('count', 0)} GPUs")
+
+                # Ollama models
+                if ollama_models:
+                    print(f"{C.CYAN_BRIGHT}│{C.END}   {C.MATRIX_DIM}└─{C.END} {C.MATRIX_GREEN}Ollama models ({len(ollama_models)}):{C.END}")
+                    for model in ollama_models[:8]:  # Show first 8
+                        print(f"{C.CYAN_BRIGHT}│{C.END}       • {C.YELLOW}{model['name']}{C.END}")
+                    if len(ollama_models) > 8:
+                        print(f"{C.CYAN_BRIGHT}│{C.END}       {C.MATRIX_DIM}(+ {len(ollama_models) - 8} more){C.END}")
+                else:
+                    print(f"{C.CYAN_BRIGHT}│{C.END}   {C.MATRIX_DIM}└─{C.END} {C.MATRIX_DIM}No Ollama models{C.END}")
+
+                if i < len(nodes):
+                    print(f"{C.CYAN_BRIGHT}│{C.END}")
+
+            print(f"{C.CYAN_BRIGHT}└─{C.END}\n")
+
+            # Summary
+            total_gpus = sum(n.get('resources', {}).get('gpu', {}).get('count', 0) for n in nodes)
+            total_cpus = sum(n.get('resources', {}).get('cpu', {}).get('cores', 0) for n in nodes)
+            all_models = set()
+            for n in nodes:
+                for m in n.get('resources', {}).get('ollama_models', []):
+                    all_models.add(m['name'])
+
+            print_info(f"Cluster Total: {total_cpus} CPUs, {total_gpus} GPUs, {len(all_models)} unique models")
+
+        except Exception as e:
+            print(f"{C.CYAN_BRIGHT}├─{C.END} {C.RED}✗{C.END} {C.MATRIX_DIM}Failed to connect: {e}{C.END}")
+            print(f"{C.CYAN_BRIGHT}├─{C.END}")
+            print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_DIM}Make sure SOLLOL server is running:{C.END}")
+            print(f"{C.CYAN_BRIGHT}├─{C.END}   {C.MATRIX_GREEN}cd ~/SOLLOL{C.END}")
+            print(f"{C.CYAN_BRIGHT}├─{C.END}   {C.MATRIX_GREEN}python -m sollol.server{C.END}")
+            print(f"{C.CYAN_BRIGHT}└─{C.END}\n")
+
+    except ImportError:
+        print(f"\n{C.YELLOW}⚠{C.END} {C.MATRIX_DIM}SOLLOL integration not available{C.END}\n")
+
+
 def interactive_setup():
     """Interactive configuration wizard with cyberpunk aesthetic"""
     print_banner()
@@ -361,7 +439,7 @@ def interactive_setup():
                 print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}...and {len(ollama_models) - models_per_page} more (enter 'list' to see all){C.END}")
 
             print(f"{C.MAGENTA}└─{C.END}")
-            print(f"\n{C.MATRIX_DIM}Commands: 'help' or 'commands' for help | 'list' to see all models{C.END}")
+            print(f"\n{C.MATRIX_DIM}Commands: 'help' | 'list' (all models) | 'cluster' (SOLLOL nodes){C.END}")
 
             # Ask user choice
             model_input = prompt_input(
@@ -383,6 +461,8 @@ def interactive_setup():
                 print(f"{C.MATRIX_BRIGHT}{C.BOLD}Commands:{C.END}")
                 print(f"  {C.YELLOW}list{C.END}            Show all {len(ollama_models)} Ollama models with RAM estimates")
                 print(f"  {C.YELLOW}ollama list{C.END}     Same as 'list'")
+                print(f"  {C.YELLOW}cluster{C.END}         Show SOLLOL cluster nodes and their models")
+                print(f"  {C.YELLOW}nodes{C.END}           Same as 'cluster'")
                 print(f"  {C.YELLOW}help{C.END}            Show this help message")
                 print(f"  {C.YELLOW}commands{C.END}        Same as 'help'")
                 print(f"  {C.YELLOW}?{C.END}               Same as 'help'")
@@ -393,6 +473,16 @@ def interactive_setup():
                 print(f"  {C.RED}✗{C.END}  Too Large   - Model exceeds 80% of RAM (likely to fail)")
                 print()
                 print(f"{C.MATRIX_DIM}Tip: Use 'list' to see all models, then select by number{C.END}\n")
+
+                # Re-prompt
+                model_input = prompt_input(
+                    f"Enter model number (1-{min(models_per_page, len(ollama_models))}), command, or model name",
+                    default="1"
+                )
+
+            # Handle 'cluster' or 'nodes' command
+            if model_input.lower() in ['cluster', 'nodes', 'sollol']:
+                show_sollol_cluster()
 
                 # Re-prompt
                 model_input = prompt_input(
