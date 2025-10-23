@@ -144,6 +144,84 @@ def animate_loading(text: str, duration: float = 1.0):
     print(f"\r{C.MATRIX_BRIGHT}{'▰' * 5}{C.END} {C.MATRIX_GREEN}{text} {C.BOLD}COMPLETE{C.END}")
 
 
+def show_throbber(text: str, duration: float = 1.0, style: str = "dots"):
+    """
+    Animated throbber/spinner for waiting operations
+
+    Styles:
+    - dots: Bouncing dots ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+    - spinner: Classic spinner |/-\\
+    - arrow: Rotating arrow ←↖↑↗→↘↓↙
+    - pulse: Pulsing circle ◜◠◝◞◡◟
+    - matrix: Matrix-style ▖▘▝▗
+    """
+    styles = {
+        "dots": ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+        "spinner": ['|', '/', '-', '\\'],
+        "arrow": ['←', '↖', '↑', '↗', '→', '↘', '↓', '↙'],
+        "pulse": ['◜', '◠', '◝', '◞', '◡', '◟'],
+        "matrix": ['▖', '▘', '▝', '▗'],
+        "dots3": ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'],
+        "line": ['⎺', '⎻', '⎼', '⎽', '⎼', '⎻'],
+        "box": ['◰', '◳', '◲', '◱'],
+        "circle": ['◐', '◓', '◑', '◒'],
+        "square": ['◢', '◣', '◤', '◥'],
+    }
+
+    frames = styles.get(style, styles["dots"])
+    start_time = time.time()
+    frame_idx = 0
+
+    while time.time() - start_time < duration:
+        frame = frames[frame_idx % len(frames)]
+        elapsed = time.time() - start_time
+        print(f"\r{C.CYAN_BRIGHT}{frame}{C.END} {C.MATRIX_DIM}{text}{C.END}", end='', flush=True)
+        time.sleep(0.08)
+        frame_idx += 1
+
+    print(f"\r{C.MATRIX_GREEN}✓{C.END} {C.MATRIX_DIM}{text}{C.END}")
+
+
+class Throbber:
+    """Context manager for long-running operations with throbber"""
+
+    def __init__(self, text: str, style: str = "dots"):
+        self.text = text
+        self.style = style
+        self.running = False
+        self.thread = None
+
+    def __enter__(self):
+        import threading
+        self.running = True
+        self.thread = threading.Thread(target=self._animate, daemon=True)
+        self.thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=0.5)
+        print(f"\r{C.MATRIX_GREEN}✓{C.END} {C.MATRIX_DIM}{self.text}{C.END}" + " " * 20)
+
+    def _animate(self):
+        styles = {
+            "dots": ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+            "spinner": ['|', '/', '-', '\\'],
+            "arrow": ['←', '↖', '↑', '↗', '→', '↘', '↓', '↙'],
+            "pulse": ['◜', '◠', '◝', '◞', '◡', '◟'],
+            "matrix": ['▖', '▘', '▝', '▗'],
+        }
+        frames = styles.get(self.style, styles["dots"])
+        idx = 0
+
+        while self.running:
+            frame = frames[idx % len(frames)]
+            print(f"\r{C.CYAN_BRIGHT}{frame}{C.END} {C.MATRIX_DIM}{self.text}{C.END}", end='', flush=True)
+            time.sleep(0.08)
+            idx += 1
+
+
 def prompt_input(prompt: str, default: Optional[str] = None) -> str:
     """Get user input with cyberpunk prompt"""
     if default:
@@ -407,7 +485,7 @@ def interactive_setup():
                 else:
                     config['model'] = model_input
 
-            animate_loading("Validating model configuration", duration=0.5)
+            show_throbber("Validating model configuration", duration=0.5, style="dots")
         else:
             print_warning("No Ollama models found")
             print_info("Supported: HuggingFace models")
@@ -530,7 +608,7 @@ def interactive_setup():
                 idx = int(file_choice) - 1
                 if 0 <= idx < len(dataset_files):
                     config['data'] = str(dataset_files[idx])
-                    animate_loading("Loading dataset", duration=0.5)
+                    show_throbber("Loading dataset", duration=0.5, style="pulse")
                     ext = dataset_files[idx].suffix.upper()
                     print_success(f"Dataset selected: {dataset_files[idx].name} ({ext} format)")
                     break
@@ -542,7 +620,7 @@ def interactive_setup():
         # Check if it's a file
         elif input_path.is_file():
             config['data'] = str(input_path)
-            animate_loading("Loading dataset", duration=0.5)
+            show_throbber("Loading dataset", duration=0.5, style="pulse")
             ext = input_path.suffix.upper()
             print_success(f"Dataset validated: {ext} format detected")
             break
@@ -737,7 +815,7 @@ def run_training(config: dict):
     try:
         # Step 1: Load tokenizer
         print_header("PHASE 1: TOKENIZER INITIALIZATION")
-        animate_loading("Loading tokenizer module", duration=0.8)
+        show_throbber("Loading tokenizer module", duration=0.8, style="spinner")
 
         # Load tokenizer with trust_remote_code for known models
         tokenizer = AutoTokenizer.from_pretrained(
