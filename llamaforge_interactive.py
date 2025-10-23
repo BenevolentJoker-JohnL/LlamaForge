@@ -248,28 +248,42 @@ def interactive_setup():
             print_success(f"Detected {len(ollama_models)} Ollama models")
             print_info("You can select an Ollama model or enter a custom HuggingFace model")
 
-            # Show popular/recent models (first 10)
-            print(f"\n{C.MAGENTA}{C.BOLD}┌─ Popular Ollama Models{C.END}")
-            for i, model in enumerate(ollama_models[:10], 1):
-                print(f"{C.MAGENTA}├─{C.END} {C.YELLOW}{i}.{C.END} {C.MATRIX_GREEN}{model['name']}{C.END} {C.MATRIX_DIM}({model['size']} MB){C.END}")
+            # Show all models (paginated display)
+            print(f"\n{C.MAGENTA}{C.BOLD}┌─ Ollama Models ({len(ollama_models)} total){C.END}")
 
-            if len(ollama_models) > 10:
-                print(f"{C.MAGENTA}└─{C.END} {C.MATRIX_DIM}...and {len(ollama_models) - 10} more{C.END}")
-            else:
-                print(f"{C.MAGENTA}└─{C.END}")
+            # Display in columns for better readability
+            models_per_page = 30
+            for i, model in enumerate(ollama_models[:models_per_page], 1):
+                print(f"{C.MAGENTA}├─{C.END} {C.YELLOW}{i:2d}.{C.END} {C.MATRIX_GREEN}{model['name']:<30}{C.END} {C.MATRIX_DIM}({model['size']}){C.END}")
 
-            print(f"\n{C.MATRIX_DIM}To see all models: ollama list{C.END}")
+            if len(ollama_models) > models_per_page:
+                print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}...and {len(ollama_models) - models_per_page} more (enter 'list' to see all){C.END}")
+
+            print(f"{C.MAGENTA}└─{C.END}")
+            print(f"\n{C.MATRIX_DIM}Commands: 'list' = show all models | model number | model name | HF model{C.END}")
 
             # Ask user choice
             model_input = prompt_input(
-                "Enter model number (1-10), Ollama model name, or HuggingFace model",
+                f"Enter model number (1-{min(models_per_page, len(ollama_models))}), command, or model name",
                 default="1"
             )
+
+            # Handle 'list' command
+            if model_input.lower() == 'list':
+                print(f"\n{C.MAGENTA}{C.BOLD}┌─ All Ollama Models{C.END}")
+                for i, model in enumerate(ollama_models, 1):
+                    print(f"{C.MAGENTA}├─{C.END} {C.YELLOW}{i:2d}.{C.END} {C.MATRIX_GREEN}{model['name']:<35}{C.END} {C.MATRIX_DIM}{model['size']}{C.END}")
+                print(f"{C.MAGENTA}└─{C.END}\n")
+
+                model_input = prompt_input(
+                    f"Enter model number (1-{len(ollama_models)}) or model name",
+                    default="1"
+                )
 
             # Parse input
             try:
                 idx = int(model_input) - 1
-                if 0 <= idx < min(10, len(ollama_models)):
+                if 0 <= idx < len(ollama_models):
                     ollama_name = ollama_models[idx]['name']
                     print_success(f"Selected: {ollama_name}")
 
