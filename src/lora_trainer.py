@@ -134,29 +134,47 @@ class LoRATrainer:
                 dtype = torch.float16
                 print("Using float16 precision")
             device_map = "auto"  # Hybrid CPU/GPU with automatic offloading
+
+            # Create offload directory for hybrid setups
+            offload_dir = self.output_dir / "offload"
+            offload_dir.mkdir(parents=True, exist_ok=True)
+
+            # Load model with memory-aware settings (GPU)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name_or_path,
+                torch_dtype=dtype,
+                device_map=device_map,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+                offload_folder=str(offload_dir),
+                offload_state_dict=True
+            )
         else:
             dtype = torch.float32
-            device_map = "cpu"
             print("Using float32 precision (CPU mode)")
 
-        # Create offload directory for hybrid setups
-        offload_dir = self.output_dir / "offload"
-        offload_dir.mkdir(parents=True, exist_ok=True)
-
-        # Load model with memory-aware settings
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            torch_dtype=dtype,
-            device_map=device_map,
-            low_cpu_mem_usage=True,
-            trust_remote_code=True,
-            offload_folder=str(offload_dir) if self.use_gpu else None,
-            offload_state_dict=True if self.use_gpu else False
-        )
+            # Load model for CPU training (no device_map to avoid gradient issues)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name_or_path,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True
+            )
+            # Explicitly move to CPU
+            self.model = self.model.to('cpu')
 
         # Apply LoRA
         print("Applying LoRA...")
         self.model = get_peft_model(self.model, self.lora_config)
+
+        # Enable gradient checkpointing after LoRA is applied
+        if hasattr(self.model, 'enable_input_require_grads'):
+            self.model.enable_input_require_grads()
+
+        # Ensure LoRA parameters require gradients
+        for name, param in self.model.named_parameters():
+            if 'lora' in name.lower():
+                param.requires_grad = True
 
         # Print trainable parameters
         self.model.print_trainable_parameters()
@@ -194,13 +212,19 @@ class LoRATrainer:
         else:
             num_workers = 0
 
-        # Choose optimizer based on available memory and bitsandbytes
-        if HAS_BITSANDBYTES:
-            optimizer = "adamw_bnb_8bit"  # 8-bit Adam - uses ~75% less memory
+        # Choose optimizer based on device and bitsandbytes availability
+        # Note: bitsandbytes 8-bit optimizer ONLY works on GPU
+        if HAS_BITSANDBYTES and self.use_gpu:
+            optimizer = "adamw_bnb_8bit"  # 8-bit Adam - uses ~75% less memory (GPU only)
             print("Using 8-bit AdamW optimizer (saves ~75% memory)")
         else:
             optimizer = "adamw_torch"
-            print("Using standard AdamW optimizer (install bitsandbytes for 8-bit)")
+            if not self.use_gpu:
+                print("Using standard AdamW optimizer (8-bit not available on CPU)")
+            elif not HAS_BITSANDBYTES:
+                print("Using standard AdamW optimizer (install bitsandbytes for 8-bit)")
+            else:
+                print("Using standard AdamW optimizer")
 
         # Training arguments optimized for device with aggressive memory saving
         training_args = TrainingArguments(

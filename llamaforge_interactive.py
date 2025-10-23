@@ -238,23 +238,46 @@ def interactive_setup():
     print_step(1, 5, "MODEL SELECTION")
 
     # Check for Ollama models
-    from ollama_utils import get_ollama_models, is_ollama_installed
+    from ollama_utils import (
+        get_ollama_models,
+        is_ollama_installed,
+        can_train_model,
+        get_available_ram,
+        ollama_model_exists
+    )
     from ollama_gguf_loader import load_ollama_model_for_training
 
     if is_ollama_installed():
         ollama_models = get_ollama_models()
 
         if ollama_models:
+            available_ram = get_available_ram()
             print_success(f"Detected {len(ollama_models)} Ollama models")
+            print_info(f"System RAM: {available_ram:.1f} GB available")
             print_info("You can select an Ollama model or enter a custom HuggingFace model")
 
-            # Show all models (paginated display)
+            # Show all models (paginated display with RAM estimates)
             print(f"\n{C.MAGENTA}{C.BOLD}┌─ Ollama Models ({len(ollama_models)} total){C.END}")
+            print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}Legend: {C.MATRIX_GREEN}✓ Trainable{C.END} | {C.YELLOW}⚠ Tight{C.END} | {C.RED}✗ Too Large{C.END}")
 
-            # Display in columns for better readability
+            # Display models with RAM estimates
             models_per_page = 30
             for i, model in enumerate(ollama_models[:models_per_page], 1):
-                print(f"{C.MAGENTA}├─{C.END} {C.YELLOW}{i:2d}.{C.END} {C.MATRIX_GREEN}{model['name']:<30}{C.END} {C.MATRIX_DIM}({model['size']}){C.END}")
+                can_train, ram_needed, _ = can_train_model(model['name'])
+
+                # Color code based on RAM requirements
+                if ram_needed < available_ram * 0.5:
+                    status = f"{C.MATRIX_GREEN}✓{C.END}"
+                    ram_color = C.MATRIX_GREEN
+                elif ram_needed < available_ram * 0.8:
+                    status = f"{C.YELLOW}⚠{C.END}"
+                    ram_color = C.YELLOW
+                else:
+                    status = f"{C.RED}✗{C.END}"
+                    ram_color = C.RED
+
+                print(f"{C.MAGENTA}├─{C.END} {status} {C.YELLOW}{i:2d}.{C.END} {C.MATRIX_GREEN}{model['name']:<30}{C.END} "
+                      f"{C.MATRIX_DIM}({model['size']:>7}){C.END} {ram_color}~{ram_needed:>4.1f}GB{C.END}")
 
             if len(ollama_models) > models_per_page:
                 print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}...and {len(ollama_models) - models_per_page} more (enter 'list' to see all){C.END}")
@@ -271,8 +294,23 @@ def interactive_setup():
             # Handle 'list' or 'ollama list' command
             if model_input.lower() in ['list', 'ollama list']:
                 print(f"\n{C.MAGENTA}{C.BOLD}┌─ All Ollama Models{C.END}")
+                print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}Legend: {C.MATRIX_GREEN}✓ Trainable{C.END} | {C.YELLOW}⚠ Tight{C.END} | {C.RED}✗ Too Large{C.END}")
                 for i, model in enumerate(ollama_models, 1):
-                    print(f"{C.MAGENTA}├─{C.END} {C.YELLOW}{i:2d}.{C.END} {C.MATRIX_GREEN}{model['name']:<35}{C.END} {C.MATRIX_DIM}{model['size']}{C.END}")
+                    can_train, ram_needed, _ = can_train_model(model['name'])
+
+                    # Color code based on RAM requirements
+                    if ram_needed < available_ram * 0.5:
+                        status = f"{C.MATRIX_GREEN}✓{C.END}"
+                        ram_color = C.MATRIX_GREEN
+                    elif ram_needed < available_ram * 0.8:
+                        status = f"{C.YELLOW}⚠{C.END}"
+                        ram_color = C.YELLOW
+                    else:
+                        status = f"{C.RED}✗{C.END}"
+                        ram_color = C.RED
+
+                    print(f"{C.MAGENTA}├─{C.END} {status} {C.YELLOW}{i:2d}.{C.END} {C.MATRIX_GREEN}{model['name']:<30}{C.END} "
+                          f"{C.MATRIX_DIM}({model['size']:>7}){C.END} {ram_color}~{ram_needed:>4.1f}GB{C.END}")
                 print(f"{C.MAGENTA}└─{C.END}\n")
 
                 model_input = prompt_input(
@@ -286,6 +324,19 @@ def interactive_setup():
                 if 0 <= idx < len(ollama_models):
                     ollama_name = ollama_models[idx]['name']
                     print_success(f"Selected: {ollama_name}")
+
+                    # Check RAM requirements
+                    can_train, ram_needed, ram_available = can_train_model(ollama_name)
+                    print_info(f"Estimated RAM needed: ~{ram_needed:.1f} GB (you have {ram_available:.1f} GB available)")
+
+                    if not can_train:
+                        print_warning(f"WARNING: This model may be too large for your system!")
+                        print_warning(f"Training may fail due to insufficient memory (OOM kill)")
+                        print_info("Consider using a smaller model or cloud GPU training")
+                        confirm = prompt_input("Continue anyway? (yes/no)", default="no")
+                        if confirm.lower() not in ['yes', 'y']:
+                            print_error("Aborted by user")
+                            return None
 
                     # Use smart GGUF loader with cache detection
                     print()
@@ -333,6 +384,64 @@ def interactive_setup():
         print_info("Supported: HuggingFace models")
         config['model'] = prompt_input("HuggingFace model name", default="mistralai/Mistral-7B-v0.1")
         animate_loading("Validating model path", duration=0.5)
+
+    # Ollama model naming (ask early for better UX)
+    print()
+    print(f"{C.CYAN_BRIGHT}{C.BOLD}▶ OLLAMA MODEL NAME{C.END}")
+    print_info("Choose a name for your fine-tuned model in Ollama")
+
+    # Extract base name for suggestion
+    if 'ollama_model' in config:
+        # User selected an Ollama model
+        suggested_name = config['ollama_model'].split(':')[0] + "-finetuned"
+    else:
+        # User entered HuggingFace model
+        base_name = config['model'].split('/')[-1].lower()
+        # Clean up the name
+        base_name = base_name.replace('-hf', '').replace('-v0.1', '').replace('-instruct', '')
+        suggested_name = base_name + "-finetuned"
+
+    # Loop until we get a valid, non-duplicate name or user skips
+    while True:
+        config['ollama_model_name'] = prompt_input(
+            "Ollama model name (or 'skip' for manual setup)",
+            default=suggested_name
+        )
+
+        if config['ollama_model_name'].lower() == 'skip':
+            config['ollama_model_name'] = None
+            print_info("Ollama model will require manual setup after training")
+            break
+
+        # Check if model already exists
+        if is_ollama_installed() and ollama_model_exists(config['ollama_model_name']):
+            print_warning(f"Model '{config['ollama_model_name']}' already exists in Ollama!")
+
+            choice = prompt_choice(
+                "What would you like to do?",
+                [
+                    "Overwrite existing model",
+                    "Choose a different name",
+                    "Skip Ollama creation (manual setup)"
+                ],
+                default=2
+            )
+
+            if "Overwrite" in choice:
+                print_info(f"Will overwrite existing model: {config['ollama_model_name']}")
+                break
+            elif "different name" in choice:
+                # Suggest a name with a counter
+                suggested_name = config['ollama_model_name'] + "-v2"
+                continue  # Ask for name again
+            else:  # Skip
+                config['ollama_model_name'] = None
+                print_info("Ollama model will require manual setup after training")
+                break
+        else:
+            # Name is valid and doesn't exist
+            print_success(f"Will create: {config['ollama_model_name']}")
+            break
 
     # Step 2: Dataset
     print_step(2, 5, "DATASET CONFIGURATION")
@@ -531,9 +640,15 @@ def interactive_setup():
         quant_choice = prompt_choice("Quantization method", quant_choices, default=1)
         config['quantization'] = quant_choice.split()[0]
         config['no_gguf'] = False
+
+        # Confirm Ollama model creation
+        if config.get('ollama_model_name'):
+            print_info(f"Will create Ollama model: {config['ollama_model_name']}")
     else:
         config['no_gguf'] = True
-        print_info("Model will be saved in HuggingFace format")
+        # Clear Ollama name if not creating GGUF
+        config['ollama_model_name'] = None
+        print_info("Model will be saved in HuggingFace format (no Ollama integration)")
 
     # Configuration summary
     print_header("CONFIGURATION SUMMARY")
@@ -558,7 +673,11 @@ def interactive_setup():
     if not config['no_gguf']:
         print(f"{C.MATRIX_BRIGHT}│{C.END}")
         print(f"{C.MATRIX_BRIGHT}└─ GGUF EXPORT{C.END}")
-        print(f"   └─ Quantization: {config['quantization']}")
+        print(f"   ├─ Quantization: {config['quantization']}")
+        if config.get('ollama_model_name'):
+            print(f"   └─ Ollama model: {config['ollama_model_name']}")
+        else:
+            print(f"   └─ {C.MATRIX_DIM}Ollama: manual setup{C.END}")
     else:
         print(f"{C.MATRIX_BRIGHT}└─{C.END} {C.YELLOW}GGUF export: DISABLED{C.END}")
 
@@ -662,6 +781,99 @@ def run_training(config: dict):
 
             print_success(f"GGUF model compiled successfully")
 
+            # Auto-create Ollama model if requested
+            if config.get('ollama_model_name'):
+                print()
+                print_header("PHASE 5: OLLAMA INTEGRATION")
+
+                ollama_name = config['ollama_model_name']
+                base_model = config.get('model', '')
+
+                # Determine chat template based on model
+                if 'qwen' in base_model.lower():
+                    template = '''<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+'''
+                    stops = ['<|im_start|>', '<|im_end|>']
+                elif 'llama' in base_model.lower():
+                    template = '''<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+{{ .System }}<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+{{ .Prompt }}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+'''
+                    stops = ['<|eot_id|>']
+                elif 'gemma' in base_model.lower():
+                    template = '''<start_of_turn>user
+{{ .Prompt }}<end_of_turn>
+<start_of_turn>model
+'''
+                    stops = ['<end_of_turn>']
+                else:
+                    # Default ChatML format
+                    template = '''<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+'''
+                    stops = ['<|im_start|>', '<|im_end|>']
+
+                # Create Modelfile
+                modelfile_path = final_path.parent / "Modelfile"
+                modelfile_content = f'''FROM {final_path}
+
+# Model card
+TEMPLATE """{template}"""
+
+# Parameters
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER num_ctx 2048
+'''
+
+                # Add stop tokens
+                for stop in stops:
+                    modelfile_content += f'PARAMETER stop "{stop}"\n'
+
+                modelfile_content += '\n# System message\n'
+                modelfile_content += 'SYSTEM """You are a helpful AI assistant trained on practical coding tasks."""\n'
+
+                # Write Modelfile
+                with open(modelfile_path, 'w') as f:
+                    f.write(modelfile_content)
+
+                print_info(f"Created Modelfile: {modelfile_path}")
+
+                # Create Ollama model
+                import subprocess
+                try:
+                    animate_loading("Importing to Ollama", duration=1.0)
+                    result = subprocess.run(
+                        ["ollama", "create", ollama_name, "-f", str(modelfile_path)],
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+
+                    if result.returncode == 0:
+                        print_success(f"Ollama model '{ollama_name}' created successfully!")
+                    else:
+                        print_error(f"Failed to create Ollama model: {result.stderr}")
+                        print_warning("You can manually create it using:")
+                        print(f"  {C.YELLOW}ollama create {ollama_name} -f {modelfile_path}{C.END}")
+                except subprocess.TimeoutExpired:
+                    print_error("Ollama creation timed out")
+                except FileNotFoundError:
+                    print_error("Ollama not found. Install it first: https://ollama.com")
+                except Exception as e:
+                    print_error(f"Error creating Ollama model: {e}")
+
         # Success banner
         print()
         print(f"{C.MATRIX_BRIGHT}{C.BOLD}{'═' * 80}{C.END}")
@@ -673,13 +885,17 @@ def run_training(config: dict):
 
         if not config['no_gguf']:
             print()
-            print(f"{C.CYAN_BRIGHT}{C.BOLD}▶ OLLAMA INTEGRATION:{C.END}")
-            print(f"{C.MATRIX_DIM}  1. Create Modelfile:{C.END}")
-            print(f"     {C.YELLOW}echo 'FROM {final_path}' > Modelfile{C.END}")
-            print(f"{C.MATRIX_DIM}  2. Import to Ollama:{C.END}")
-            print(f"     {C.YELLOW}ollama create my-model -f Modelfile{C.END}")
-            print(f"{C.MATRIX_DIM}  3. Execute:{C.END}")
-            print(f"     {C.YELLOW}ollama run my-model{C.END}")
+            if config.get('ollama_model_name'):
+                print(f"{C.CYAN_BRIGHT}{C.BOLD}▶ RUN YOUR MODEL:{C.END}")
+                print(f"     {C.YELLOW}ollama run {config['ollama_model_name']}{C.END}")
+            else:
+                print(f"{C.CYAN_BRIGHT}{C.BOLD}▶ OLLAMA INTEGRATION:{C.END}")
+                print(f"{C.MATRIX_DIM}  1. Create Modelfile:{C.END}")
+                print(f"     {C.YELLOW}echo 'FROM {final_path}' > Modelfile{C.END}")
+                print(f"{C.MATRIX_DIM}  2. Import to Ollama:{C.END}")
+                print(f"     {C.YELLOW}ollama create my-model -f Modelfile{C.END}")
+                print(f"{C.MATRIX_DIM}  3. Execute:{C.END}")
+                print(f"     {C.YELLOW}ollama run my-model{C.END}")
 
         print()
         print_system("Neural forge shutdown complete")
