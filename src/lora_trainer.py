@@ -3,6 +3,7 @@ CPU/GPU LoRA Trainer with automatic acceleration and memory-aware optimization
 """
 
 import os
+import gc
 import torch
 import psutil
 from pathlib import Path
@@ -13,7 +14,8 @@ from transformers import (
     AutoTokenizer,
     TrainingArguments,
     Trainer,
-    DataCollatorForLanguageModeling
+    DataCollatorForLanguageModeling,
+    TrainerCallback
 )
 from peft import LoraConfig, get_peft_model, TaskType
 
@@ -23,6 +25,44 @@ try:
     HAS_BITSANDBYTES = True
 except ImportError:
     HAS_BITSANDBYTES = False
+
+
+class MemoryMonitorCallback(TrainerCallback):
+    """Callback to monitor memory usage and trigger garbage collection"""
+
+    def __init__(self, use_gpu=False, gc_frequency=10):
+        self.use_gpu = use_gpu
+        self.gc_frequency = gc_frequency
+        self.step_count = 0
+
+    def on_step_end(self, args, state, control, **kwargs):
+        """Monitor memory after each training step"""
+        self.step_count += 1
+
+        # Periodic garbage collection
+        if self.step_count % self.gc_frequency == 0:
+            gc.collect()
+            if self.use_gpu:
+                torch.cuda.empty_cache()
+
+        # Check memory every 50 steps
+        if self.step_count % 50 == 0:
+            if self.use_gpu:
+                mem_allocated = torch.cuda.memory_allocated() / (1024**3)
+                mem_reserved = torch.cuda.memory_reserved() / (1024**3)
+                print(f"  [GPU Memory] Allocated: {mem_allocated:.2f} GB, Reserved: {mem_reserved:.2f} GB")
+            else:
+                mem = psutil.virtual_memory()
+                used_gb = (mem.total - mem.available) / (1024**3)
+                available_gb = mem.available / (1024**3)
+                percent = mem.percent
+                print(f"  [CPU Memory] Used: {used_gb:.2f} GB, Available: {available_gb:.2f} GB ({percent}%)")
+
+                # Warning if memory is getting low
+                if percent > 85:
+                    print(f"  [!] WARNING: Memory usage at {percent}% - may run out soon!")
+
+        return control
 
 
 class LoRATrainer:
@@ -201,6 +241,24 @@ class LoRATrainer:
             batch_size = self._estimate_optimal_batch_size(max_seq_length)
             print(f"Auto-estimated batch size: {batch_size}")
 
+        # CPU-specific memory optimizations
+        if not self.use_gpu:
+            # Aggressive memory saving for CPU
+            gradient_accumulation_steps = max(1, gradient_accumulation_steps // 2)  # Reduce accumulation
+            print(f"[CPU] Reduced gradient accumulation to {gradient_accumulation_steps} for memory efficiency")
+
+            # Force garbage collection before training
+            import gc
+            gc.collect()
+
+            # Check available memory
+            mem = psutil.virtual_memory()
+            available_gb = mem.available / (1024**3)
+            print(f"[CPU] Available RAM: {available_gb:.1f} GB")
+            if available_gb < 4:
+                print(f"[!] WARNING: Low memory ({available_gb:.1f} GB). Training may fail!")
+                print(f"[!] Consider: smaller model, batch_size=1, or more RAM")
+
         # Determine precision settings
         use_fp16 = self.use_gpu and not torch.cuda.is_bf16_supported()
         use_bf16 = self.use_gpu and torch.cuda.is_bf16_supported()
@@ -210,7 +268,7 @@ class LoRATrainer:
             # GPU can handle more workers
             num_workers = min(4, os.cpu_count() or 1)
         else:
-            num_workers = 0
+            num_workers = 0  # No workers on CPU to save memory
 
         # Choose optimizer based on device and bitsandbytes availability
         # Note: bitsandbytes 8-bit optimizer ONLY works on GPU
@@ -261,12 +319,19 @@ class LoRATrainer:
             mlm=False
         )
 
+        # Memory monitoring callback
+        memory_callback = MemoryMonitorCallback(
+            use_gpu=self.use_gpu,
+            gc_frequency=5 if not self.use_gpu else 10  # More frequent GC on CPU
+        )
+
         # Trainer
         trainer = Trainer(
             model=self.model,
             args=training_args,
             train_dataset=dataset,
-            data_collator=data_collator
+            data_collator=data_collator,
+            callbacks=[memory_callback]
         )
 
         # Train
@@ -275,8 +340,14 @@ class LoRATrainer:
             print(f"Training on GPU with {'bfloat16' if use_bf16 else 'float16'} precision")
         else:
             print("Training on CPU (this may take a while...)")
+            print("[i] Memory monitoring enabled - will show updates every 50 steps")
 
         trainer.train()
+
+        # Final cleanup
+        gc.collect()
+        if self.use_gpu:
+            torch.cuda.empty_cache()
 
         # Save LoRA adapter
         adapter_path = self.output_dir / "lora_adapter"
