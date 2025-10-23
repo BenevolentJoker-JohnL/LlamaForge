@@ -359,7 +359,7 @@ class SOLLOLOrchestrator:
             base_model: Ollama model name for students (e.g., 'qwen2.5:0.5b')
             teacher_outputs_dir: Directory with teacher-generated outputs
             num_students: Number of parallel student workers
-            peft_type: PEFT method to use (lora, prefix, prompt, adapter, ia3)
+            peft_type: PEFT method to use (lora, prefix, prompt, ia3)
             peft_config: PEFT-specific configuration (depends on peft_type)
 
         Returns:
@@ -370,7 +370,6 @@ class SOLLOLOrchestrator:
             "lora": {"r": 8, "alpha": 16, "dropout": 0.05},
             "prefix": {"num_virtual_tokens": 30},
             "prompt": {"num_virtual_tokens": 30, "prompt_tuning_init": "RANDOM"},
-            "adapter": {"reduction_factor": 16},
             "ia3": {}
         }
 
@@ -432,10 +431,6 @@ class SOLLOLOrchestrator:
                         command.extend([
                             "--prompt-tuning-init-text", peft_config["prompt_tuning_init_text"]
                         ])
-            elif peft_type == "adapter":
-                command.extend([
-                    "--adapter-reduction-factor", str(peft_config.get("reduction_factor", 16))
-                ])
             # ia3 doesn't need extra params in command line (uses defaults)
 
             task_config = TaskConfig(

@@ -1,0 +1,20 @@
+FROM finetuned-model.gguf
+
+# Model card
+TEMPLATE """<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""
+
+# Parameters
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER num_ctx 2048
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|im_end|>"
+
+# System message
+SYSTEM """You are a helpful AI assistant trained on practical coding tasks."""

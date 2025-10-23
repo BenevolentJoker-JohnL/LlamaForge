@@ -21,11 +21,10 @@ from peft import (
     LoraConfig,
     PrefixTuningConfig,
     PromptTuningConfig,
-    AdapterConfig,
     IA3Config,
+    AdaptionPromptConfig,  # LLaMA-specific adapters
     get_peft_model,
-    TaskType,
-    PeftType
+    TaskType
 )
 
 # Try to import bitsandbytes for 8-bit optimizer
@@ -144,13 +143,13 @@ class MemoryMonitorCallback(TrainerCallback):
 
 
 class LoRATrainer:
-    """PEFT-agnostic fine-tuning with CPU/GPU support (LoRA, Prefix Tuning, Prompt Tuning, Adapters, IA³)"""
+    """PEFT-agnostic fine-tuning with CPU/GPU support (LoRA, Prefix Tuning, Prompt Tuning, IA³)"""
 
     def __init__(
         self,
         model_path: str,
         output_dir: str = "./output",
-        peft_type: Literal["lora", "prefix", "prompt", "adapter", "ia3"] = "lora",
+        peft_type: Literal["lora", "prefix", "prompt", "ia3"] = "lora",
         device: Literal["auto", "cpu", "cuda"] = "auto",
         # LoRA-specific params
         lora_r: int = 8,
@@ -162,8 +161,6 @@ class LoRATrainer:
         # Prompt tuning params
         prompt_tuning_init: Literal["TEXT", "RANDOM"] = "RANDOM",
         prompt_tuning_init_text: Optional[str] = None,
-        # Adapter params
-        adapter_reduction_factor: int = 16,
         # IA³ params
         ia3_target_modules: Optional[list] = None,
         ia3_feedforward_modules: Optional[list] = None
@@ -206,8 +203,6 @@ class LoRATrainer:
             # Prompt tuning params
             "prompt_tuning_init": prompt_tuning_init,
             "prompt_tuning_init_text": prompt_tuning_init_text,
-            # Adapter params
-            "adapter_reduction_factor": adapter_reduction_factor,
             # IA³ params
             "ia3_target_modules": ia3_target_modules or ["q_proj", "v_proj", "k_proj"],
             "ia3_feedforward_modules": ia3_feedforward_modules or ["down_proj", "up_proj"]
@@ -254,12 +249,6 @@ class LoRATrainer:
 
             return PromptTuningConfig(**config_kwargs)
 
-        elif self.peft_type == "adapter":
-            return AdapterConfig(
-                reduction_factor=self.peft_config_params["adapter_reduction_factor"],
-                task_type=TaskType.CAUSAL_LM
-            )
-
         elif self.peft_type == "ia3":
             return IA3Config(
                 target_modules=self.peft_config_params["ia3_target_modules"],
@@ -268,7 +257,7 @@ class LoRATrainer:
             )
 
         else:
-            raise ValueError(f"Unsupported PEFT type: {self.peft_type}. Choose from: lora, prefix, prompt, adapter, ia3")
+            raise ValueError(f"Unsupported PEFT type: {self.peft_type}. Choose from: lora, prefix, prompt, ia3")
 
     def _setup_cpu_threads(self):
         """Setup optimal CPU threading for multi-core execution"""
