@@ -135,6 +135,112 @@ class SOLLOLOrchestrator:
 
         return matching_nodes
 
+    def create_parallel_teacher_tasks(
+        self,
+        model_path: str,
+        dataset_path: str,
+        output_dir: str,
+        num_teachers: int = None,
+        batch_size: int = 4,
+        max_samples: Optional[int] = None,
+        compress_outputs: bool = True
+    ) -> List[str]:
+        """
+        Create multiple parallel teacher tasks for faster generation.
+
+        Especially useful for CPU-only setups where teacher inference is slow.
+        Splits dataset across multiple teacher nodes running in parallel.
+
+        Args:
+            model_path: Ollama model name
+            dataset_path: Path to dataset file
+            output_dir: Directory for teacher outputs
+            num_teachers: Number of parallel teachers (None = auto-detect from available nodes)
+            batch_size: Inference batch size per teacher
+            max_samples: Optional limit on dataset samples
+            compress_outputs: Use float16 to reduce disk I/O (recommended for CPU)
+
+        Returns:
+            List of teacher task IDs
+        """
+        # Find nodes with this model
+        matching_nodes = self.get_nodes_with_model(model_path)
+
+        if not matching_nodes:
+            raise RuntimeError(
+                f"No nodes have model '{model_path}' available. "
+                f"Please pull the model on at least one node using: ollama pull {model_path}"
+            )
+
+        # Auto-detect number of teachers if not specified
+        if num_teachers is None:
+            num_teachers = len(matching_nodes)
+
+        print(f"[i] Creating {num_teachers} parallel teacher tasks")
+        print(f"[i] Found {len(matching_nodes)} nodes with model '{model_path}'")
+
+        # Prefer GPU nodes, but use CPU if needed
+        gpu_nodes = [n for n in matching_nodes if n.get('resources', {}).get('gpu', {}).get('count', 0) > 0]
+        if gpu_nodes:
+            print(f"[i] Using {len(gpu_nodes)} GPU nodes for teacher tasks")
+        else:
+            print(f"[i] Using CPU-only nodes (teacher inference will be slower)")
+            print(f"[i] Parallel generation is critical for CPU performance")
+
+        task_ids = []
+
+        # Calculate timeout based on CPU vs GPU
+        # CPU is ~10-20x slower than GPU for inference
+        if gpu_nodes:
+            # GPU: ~50 tok/s, reasonable timeout
+            timeout_hours = 4
+        else:
+            # CPU: ~2-5 tok/s, need much longer timeout
+            timeout_hours = 24  # Give CPU nodes plenty of time
+            print(f"[i] Setting {timeout_hours}-hour timeout for CPU teacher tasks")
+
+        for i in range(num_teachers):
+            task_config = TaskConfig(
+                name=f"llamaforge_teacher_{i}",
+                type="inference",
+                priority="high",
+                resources=ResourceConfig(
+                    gpu_memory_gb=16 if gpu_nodes else 0,
+                    cpu_cores=4,
+                    ram_gb=32
+                ),
+                node_constraints={
+                    "ollama_model": model_path,
+                    "allowed_nodes": [n['name'] for n in matching_nodes]
+                },
+                timeout_seconds=timeout_hours * 3600,  # Convert to seconds
+                command=[
+                    "python", "-m", "llamaforge.teacher_worker",
+                    "--model", model_path,
+                    "--data", dataset_path,
+                    "--output", f"{output_dir}/teacher_{i}",
+                    "--batch-size", str(batch_size),
+                    "--shard-id", str(i),
+                    "--num-shards", str(num_teachers),
+                    *([" --max-samples", str(max_samples)] if max_samples else []),
+                    *([" --compress-float16"] if compress_outputs else [])
+                ],
+                checkpointing=True,
+                max_retries=2
+            )
+
+            task_id = self.client.submit_task(task_config)
+            self.active_tasks[task_id] = {
+                "type": "teacher",
+                "shard_id": i,
+                "model": model_path,
+                "status": "submitted"
+            }
+            task_ids.append(task_id)
+
+        print(f"[✓] Created {num_teachers} parallel teacher tasks")
+        return task_ids
+
     def create_teacher_task(
         self,
         model_path: str,
@@ -144,7 +250,10 @@ class SOLLOLOrchestrator:
         max_samples: Optional[int] = None
     ) -> str:
         """
-        Create a teacher task for generating training outputs.
+        Create a single teacher task for generating training outputs.
+
+        For CPU-only setups, consider using create_parallel_teacher_tasks()
+        instead to parallelize generation across multiple nodes.
 
         The teacher loads the full model and generates predictions
         for the dataset, which are then used to train student models.
@@ -178,6 +287,18 @@ class SOLLOLOrchestrator:
         print(f"[i] Found {len(matching_nodes)} nodes with model '{model_path}'")
         if gpu_nodes:
             print(f"[i] Preferring GPU nodes for teacher task")
+        else:
+            print(f"[!] WARNING: No GPU nodes available - teacher inference will be slow on CPU")
+            if len(matching_nodes) > 1:
+                print(f"[i] TIP: Use create_parallel_teacher_tasks() to split generation across {len(matching_nodes)} CPU nodes")
+            print(f"[i] Consider using a smaller teacher model for CPU-only setups")
+
+        # Calculate timeout based on CPU vs GPU
+        if gpu_nodes:
+            timeout_hours = 4  # GPU is fast
+        else:
+            timeout_hours = 24  # CPU needs much more time
+            print(f"[i] Setting {timeout_hours}-hour timeout for CPU task")
 
         # Create task with node constraints
         task_config = TaskConfig(
@@ -185,7 +306,7 @@ class SOLLOLOrchestrator:
             type="inference",
             priority="high",
             resources=ResourceConfig(
-                gpu_memory_gb=16,  # Teachers need more memory
+                gpu_memory_gb=16 if gpu_nodes else 0,
                 cpu_cores=4,
                 ram_gb=32
             ),
@@ -193,6 +314,7 @@ class SOLLOLOrchestrator:
                 "ollama_model": model_path,  # Must have this model
                 "preferred_nodes": [n['name'] for n in preferred_nodes]
             },
+            timeout_seconds=timeout_hours * 3600,
             command=[
                 "python", "-m", "llamaforge.teacher_worker",
                 "--model", model_path,
@@ -263,6 +385,15 @@ class SOLLOLOrchestrator:
         if num_students > len(matching_nodes):
             print(f"[i] Note: {num_students} students will be queued across {len(matching_nodes)} nodes")
 
+        # Calculate timeout based on CPU vs GPU
+        # Student training (LoRA) is also slower on CPU but not as dramatically
+        gpu_nodes = [n for n in matching_nodes if n.get('resources', {}).get('gpu', {}).get('count', 0) > 0]
+        if gpu_nodes:
+            timeout_hours = 8  # GPU training is reasonably fast
+        else:
+            timeout_hours = 48  # CPU training is 5-10x slower
+            print(f"[i] Setting {timeout_hours}-hour timeout for CPU student training")
+
         task_ids = []
 
         for i in range(num_students):
@@ -271,7 +402,7 @@ class SOLLOLOrchestrator:
                 type="training",
                 priority="normal",
                 resources=ResourceConfig(
-                    gpu_memory_gb=8,  # Students need less memory
+                    gpu_memory_gb=8 if gpu_nodes else 0,
                     cpu_cores=2,
                     ram_gb=16
                 ),
@@ -279,6 +410,7 @@ class SOLLOLOrchestrator:
                     "ollama_model": base_model,  # Must have this model
                     "allowed_nodes": [n['name'] for n in matching_nodes]
                 },
+                timeout_seconds=timeout_hours * 3600,
                 command=[
                     "python", "-m", "llamaforge.student_worker",
                     "--model", base_model,
