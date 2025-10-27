@@ -1,0 +1,127 @@
+{
+  "metadata": {
+    "created": "2025-10-23T01:09:21.725512",
+    "version": "1.0",
+    "total_examples": 838469
+  },
+  "buckets": {
+    "code": {
+      "source": "examples/datasets/claude_reasoning_ultimate_1.4M.jsonl",
+      "count": 384087,
+      "weight": 0.2,
+      "description": "Auto-detected code examples",
+      "provenance": "auto-classified",
+      "added": "2025-10-23T01:09:35.998668"
+    },
+    "instruction": {
+      "source": "examples/datasets/claude_reasoning_ultimate_1.4M.jsonl",
+      "count": 400561,
+      "weight": 0.25,
+      "description": "Auto-detected instruction examples",
+      "provenance": "auto-classified",
+      "added": "2025-10-23T01:09:35.998679"
+    },
+    "creative": {
+      "source": "examples/datasets/claude_reasoning_ultimate_1.4M.jsonl",
+      "count": 17949,
+      "weight": 0.07,
+      "description": "Auto-detected creative examples",
+      "provenance": "auto-classified",
+      "added": "2025-10-23T01:09:35.998680"
+    },
+    "analytical": {
+      "source": "examples/datasets/claude_reasoning_ultimate_1.4M.jsonl",
+      "count": 31965,
+      "weight": 0.1,
+      "description": "Auto-detected analytical examples",
+      "provenance": "auto-classified",
+      "added": "2025-10-23T01:09:35.998681"
+    },
+    "cot_math": {
+      "source": "examples/datasets/claude_reasoning_ultimate_1.4M.jsonl",
+      "count": 3840,
+      "weight": 0.15,
+      "description": "Auto-detected cot_math examples",
+      "provenance": "auto-classified",
+      "added": "2025-10-23T01:09:35.998683"
+    },
+    "tool_use": {
+      "source": "examples/datasets/claude_reasoning_ultimate_1.4M.jsonl",
+      "count": 67,
+      "weight": 0.15,
+      "description": "Auto-detected tool_use examples",
+      "provenance": "auto-classified",
+      "added": "2025-10-23T01:09:35.998684"
+    }
+  },
+  "default_weights": {
+    "instruction": 0.25,
+    "tool_use": 0.15,
+    "code": 0.2,
+    "cot_math": 0.15,
+    "analytical": 0.1,
+    "creative": 0.07,
+    "factual": 0.03,
+    "red_team": 0.05
+  },
+  "training_phases": {
+    "phase1_calibration": {
+      "description": "Initial calibration with high-quality general instructions",
+      "weights": {
+        "instruction": 0.7,
+        "code": 0.2,
+        "factual": 0.1
+      },
+      "recommended_samples": 10000,
+      "epochs": 2
+    },
+    "phase2_reasoning": {
+      "description": "Heavy reasoning and tool use",
+      "weights": {
+        "cot_math": 0.4,
+        "tool_use": 0.3,
+        "analytical": 0.2,
+        "instruction": 0.1
+      },
+      "recommended_samples": 200000,
+      "epochs": 1
+    },
+    "phase3_creative": {
+      "description": "Style, creativity, and diversity",
+      "weights": {
+        "creative": 0.4,
+        "analytical": 0.3,
+        "instruction": 0.2,
+        "factual": 0.1
+      },
+      "recommended_samples": 100000,
+      "epochs": 1
+    },
+    "phase4_robustness": {
+      "description": "Safety, edge cases, and adversarial",
+      "weights": {
+        "red_team": 0.4,
+        "instruction": 0.3,
+        "tool_use": 0.2,
+        "factual": 0.1
+      },
+      "recommended_samples": 50000,
+      "epochs": 1
+    },
+    "production_balanced": {
+      "description": "Balanced production mix (recommended for full training)",
+      "weights": {
+        "instruction": 0.25,
+        "tool_use": 0.15,
+        "code": 0.2,
+        "cot_math": 0.15,
+        "analytical": 0.1,
+        "creative": 0.07,
+        "factual": 0.03,
+        "red_team": 0.05
+      },
+      "recommended_samples": 500000,
+      "epochs": 1
+    }
+  }
+}

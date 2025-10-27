@@ -2,6 +2,42 @@
 
 Fine-tuning pipeline for LLMs with LoRA, supporting CPU and GPU execution. Integrates with Ollama for model management and GGUF conversion.
 
+---
+
+## ⚠️ Project Status
+
+**Maturity**: Alpha (v0.1.0) - Experimental research tool
+
+**What works well:**
+- ✅ LoRA fine-tuning on 1-7B parameter models
+- ✅ GGUF conversion for Ollama deployment
+- ✅ Distributed training with SOLLOL integration
+- ✅ CPU and GPU execution with automatic detection
+- ✅ Interactive wizard and CLI modes
+
+**Known limitations:**
+- ⚠️ **Memory requirements**: 16GB+ RAM for 7B models, OOM possible during merge step
+- ⚠️ **Small datasets break models**: Minimum 500-1000 samples required
+- ⚠️ **No automated tests**: Manual testing only, no CI/CD
+- ⚠️ **Limited architecture support**: Tested on Llama, Mistral, CodeLlama, Qwen
+- ⚠️ **Not battle-tested**: Limited production usage
+
+**Recommended for:**
+- 🎓 Learning distributed training and LoRA fine-tuning
+- 🔬 Research and experimentation
+- 🏠 Personal projects with adequate hardware (16GB+ RAM)
+- 🛠️ Contributors who want to help mature the project
+
+**NOT recommended for:**
+- ❌ Production training pipelines
+- ❌ Systems with <16GB RAM
+- ❌ Mission-critical workloads
+- ❌ Users unfamiliar with ML/PyTorch
+
+**Read before using:** [TECHNICAL_REALITY.md](TECHNICAL_REALITY.md) and [TRAINING_ISSUES_ANALYSIS.md](TRAINING_ISSUES_ANALYSIS.md) for honest documentation of limitations.
+
+---
+
 ## Overview
 
 LlamaForge provides a streamlined workflow for fine-tuning large language models using Parameter-Efficient Fine-Tuning (PEFT) with LoRA. The system handles dataset preprocessing, training, and conversion to GGUF format for use with Ollama.

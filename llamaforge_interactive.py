@@ -377,6 +377,79 @@ def show_sollol_cluster():
         print(f"\n{C.YELLOW}⚠{C.END} {C.MATRIX_DIM}SOLLOL integration not available{C.END}\n")
 
 
+def launch_dashboard():
+    """Launch the LlamaForge training dashboard"""
+    import subprocess
+    import socket
+    import webbrowser
+
+    print(f"\n{C.CYAN_BRIGHT}{C.BOLD}┌─ LlamaForge Training Dashboard{C.END}")
+
+    # Check if dashboard is already running
+    def is_port_in_use(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('localhost', port)) == 0
+
+    if is_port_in_use(5000):
+        print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_GREEN}✓{C.END} {C.MATRIX_DIM}Dashboard is already running!{C.END}")
+        print(f"{C.CYAN_BRIGHT}├─{C.END}")
+    else:
+        print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_DIM}Starting dashboard server...{C.END}")
+
+        # Start dashboard in background
+        dashboard_path = Path(__file__).parent / "simple_dashboard.py"
+        if dashboard_path.exists():
+            subprocess.Popen(
+                ["python", str(dashboard_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            time.sleep(2)  # Wait for server to start
+            print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_GREEN}✓{C.END} {C.MATRIX_DIM}Dashboard server started{C.END}")
+        else:
+            print(f"{C.CYAN_BRIGHT}├─{C.END} {C.RED}✗{C.END} {C.MATRIX_DIM}Dashboard file not found{C.END}")
+            print(f"{C.CYAN_BRIGHT}└─{C.END}\n")
+            return
+        print(f"{C.CYAN_BRIGHT}├─{C.END}")
+
+    # Show access URLs
+    print(f"{C.CYAN_BRIGHT}├─{C.END} {C.BOLD}Access URLs:{C.END}")
+    print(f"{C.CYAN_BRIGHT}├─{C.END}   {C.MATRIX_GREEN}Local:{C.END}    {C.YELLOW}http://localhost:5000{C.END}")
+
+    # Try to get network IP
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        print(f"{C.CYAN_BRIGHT}├─{C.END}   {C.MATRIX_GREEN}Network:{C.END}  {C.YELLOW}http://{local_ip}:5000{C.END}")
+    except:
+        pass
+
+    print(f"{C.CYAN_BRIGHT}├─{C.END}")
+    print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_DIM}Features:{C.END}")
+    print(f"{C.CYAN_BRIGHT}├─{C.END}   • Real-time CPU/RAM monitoring")
+    print(f"{C.CYAN_BRIGHT}├─{C.END}   • GPU detection status")
+    print(f"{C.CYAN_BRIGHT}├─{C.END}   • Active training job tracking")
+    print(f"{C.CYAN_BRIGHT}├─{C.END}   • Auto-refresh every 5 seconds")
+    print(f"{C.CYAN_BRIGHT}├─{C.END}")
+
+    # Ask if user wants to open in browser
+    open_browser = prompt_input(f"{C.CYAN_BRIGHT}├─{C.END} Open dashboard in browser now? [Y/n]", default="y")
+
+    if open_browser.lower() in ['y', 'yes', '']:
+        print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_DIM}Opening browser...{C.END}")
+        try:
+            webbrowser.open("http://localhost:5000")
+            print(f"{C.CYAN_BRIGHT}├─{C.END} {C.MATRIX_GREEN}✓{C.END} {C.MATRIX_DIM}Browser launched{C.END}")
+        except:
+            print(f"{C.CYAN_BRIGHT}├─{C.END} {C.YELLOW}⚠{C.END} {C.MATRIX_DIM}Could not open browser automatically{C.END}")
+
+    print(f"{C.CYAN_BRIGHT}└─{C.END}\n")
+    print_info("Dashboard runs in background. Use URL above to access anytime.")
+
+
 def interactive_setup():
     """Interactive configuration wizard with cyberpunk aesthetic"""
     print_banner()
@@ -439,7 +512,7 @@ def interactive_setup():
                 print(f"{C.MAGENTA}├─{C.END} {C.MATRIX_DIM}...and {len(ollama_models) - models_per_page} more (enter 'list' to see all){C.END}")
 
             print(f"{C.MAGENTA}└─{C.END}")
-            print(f"\n{C.MATRIX_DIM}Commands: 'help' | 'list' (all models) | 'cluster' (SOLLOL nodes){C.END}")
+            print(f"\n{C.MATRIX_DIM}Commands: 'help' | 'list' (all models) | 'cluster' (SOLLOL nodes) | 'dashboard' (training monitor){C.END}")
 
             # Ask user choice
             model_input = prompt_input(
@@ -463,6 +536,7 @@ def interactive_setup():
                 print(f"  {C.YELLOW}ollama list{C.END}     Same as 'list'")
                 print(f"  {C.YELLOW}cluster{C.END}         Show SOLLOL cluster nodes and their models")
                 print(f"  {C.YELLOW}nodes{C.END}           Same as 'cluster'")
+                print(f"  {C.YELLOW}dashboard{C.END}       Launch training dashboard (web UI)")
                 print(f"  {C.YELLOW}help{C.END}            Show this help message")
                 print(f"  {C.YELLOW}commands{C.END}        Same as 'help'")
                 print(f"  {C.YELLOW}?{C.END}               Same as 'help'")
@@ -483,6 +557,16 @@ def interactive_setup():
             # Handle 'cluster' or 'nodes' command
             if model_input.lower() in ['cluster', 'nodes', 'sollol']:
                 show_sollol_cluster()
+
+                # Re-prompt
+                model_input = prompt_input(
+                    f"Enter model number (1-{min(models_per_page, len(ollama_models))}), command, or model name",
+                    default="1"
+                )
+
+            # Handle 'dashboard' command
+            if model_input.lower() in ['dashboard', 'monitor', 'dash']:
+                launch_dashboard()
 
                 # Re-prompt
                 model_input = prompt_input(

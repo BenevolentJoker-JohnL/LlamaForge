@@ -1,0 +1,163 @@
+{
+  "phase_1_3M": {
+    "description": "Initial efficient training - Fast validation of pipeline and approach",
+    "target_size": 3000000,
+    "model_size_recommendation": "1B-7B parameters",
+    "training_time_estimate": {
+      "single_cpu": "7-10 days",
+      "single_gpu_t4": "2-3 days",
+      "sollol_4_workers": "12-18 hours",
+      "sollol_8_workers": "6-10 hours"
+    },
+    "duplication_ratios": {
+      "code": 1.8,
+      "tool_use": 2.0,
+      "cot_math": 1.3,
+      "analytical": 1.0,
+      "red_team": 3.0,
+      "creative": 1.0,
+      "instruction": 1.4
+    },
+    "expected_distribution": {
+      "code": "32.8% (~985K)",
+      "instruction": "48.2% (~1.45M)",
+      "red_team": "14.6% (~437K)",
+      "tool_use": "1.1% (~33K)",
+      "creative": "1.5% (~45K)",
+      "analytical": "1.3% (~38K)",
+      "cot_math": "0.5% (~15K)"
+    },
+    "objectives": [
+      "Prove training pipeline works end-to-end",
+      "Validate Claude-style reasoning capabilities",
+      "Confirm code generation improvements",
+      "Benchmark safety/refusal behavior",
+      "Establish baseline metrics for comparison"
+    ],
+    "success_criteria": {
+      "humaneval": "20-30% (up from 5-10% baseline)",
+      "gsm8k": "35-50% (up from 8-12% baseline)",
+      "cot_reasoning": "75-85% (up from 10-15% baseline)",
+      "safety_compliance": "80-90%"
+    }
+  },
+
+  "phase_2_4.5M": {
+    "description": "Ultimate scale-up - Maximum robustness and multi-domain mastery",
+    "target_size": 4500000,
+    "model_size_recommendation": "7B-13B parameters",
+    "training_time_estimate": {
+      "single_cpu": "10-14 days",
+      "single_gpu_t4": "3-4 days",
+      "sollol_4_workers": "18-24 hours",
+      "sollol_8_workers": "9-12 hours"
+    },
+    "duplication_ratios": {
+      "code": 2.2,
+      "tool_use": 2.5,
+      "cot_math": 1.5,
+      "analytical": 1.2,
+      "red_team": 3.5,
+      "creative": 1.0,
+      "instruction": 1.6,
+      "persona": 2.8
+    },
+    "expected_distribution": {
+      "code": "35% (~1.58M)",
+      "instruction": "42% (~1.89M)",
+      "red_team": "16% (~720K)",
+      "persona": "3% (~135K)",
+      "tool_use": "1.5% (~68K)",
+      "creative": "1.5% (~68K)",
+      "analytical": "1% (~45K)",
+      "cot_math": "0.8% (~36K)"
+    },
+    "when_to_use": [
+      "Phase 1 achieved >80% of success criteria",
+      "Ready to train 10B+ parameter models",
+      "Need maximum multi-domain generalization",
+      "Preparing for DPO/RLHF alignment phase",
+      "Want production-grade robustness"
+    ],
+    "objectives": [
+      "Maximize code generation quality (near GPT-3.5 level)",
+      "Achieve consistent Claude-style reasoning",
+      "Perfect tool use and function calling",
+      "Strengthen persona/tone consistency",
+      "Bulletproof safety and refusal behavior"
+    ],
+    "success_criteria": {
+      "humaneval": "40-55% (GPT-3 level)",
+      "gsm8k": "50-65%",
+      "cot_reasoning": "85-95%",
+      "safety_compliance": "92-98%",
+      "tool_use_accuracy": "85-95%"
+    }
+  },
+
+  "phase_1.5_3.6M": {
+    "description": "Middle-ground expansion - Boost specific weak domains",
+    "target_size": 3600000,
+    "model_size_recommendation": "3B-7B parameters",
+    "when_to_use": [
+      "Phase 1 results show specific gaps (e.g., tool use still weak)",
+      "Want incremental improvement without full 4.5M commitment",
+      "Testing domain-specific hypotheses"
+    ],
+    "duplication_ratios": {
+      "code": 2.0,
+      "tool_use": 2.5,
+      "cot_math": 1.4,
+      "analytical": 1.0,
+      "red_team": 3.2,
+      "creative": 1.0,
+      "instruction": 1.5,
+      "persona": 2.0
+    },
+    "notes": "Selective boost - only amplify domains that showed weakness in Phase 1"
+  },
+
+  "recommended_workflow": {
+    "step_1": {
+      "phase": "phase_1_3M",
+      "action": "Train with 3M corpus",
+      "duration": "12-18 hours (4-worker SOLLOL)",
+      "evaluation": "Run full benchmark suite"
+    },
+    "step_2": {
+      "decision": "Analyze Phase 1 results",
+      "if_excellent": "Deploy and iterate on downstream tasks",
+      "if_good": "Consider phase_1.5_3.6M for targeted improvements",
+      "if_gaps": "Build phase_2_4.5M with adjusted ratios"
+    },
+    "step_3": {
+      "phase": "phase_2_4.5M (optional)",
+      "action": "Ultimate scale training",
+      "duration": "18-24 hours (4-worker SOLLOL)",
+      "evaluation": "Production readiness assessment"
+    }
+  },
+
+  "cost_benefit_analysis": {
+    "phase_1_3M": {
+      "compute_cost": "baseline (1.0x)",
+      "storage": "5 GB",
+      "training_time": "12-18 hours",
+      "expected_improvement": "4-6x baseline performance",
+      "risk": "low - proven approach"
+    },
+    "phase_2_4.5M": {
+      "compute_cost": "1.5x",
+      "storage": "7.5 GB",
+      "training_time": "18-24 hours",
+      "expected_improvement": "6-8x baseline performance",
+      "risk": "medium - longer iteration cycle",
+      "incremental_gain_over_phase1": "15-25%"
+    }
+  },
+
+  "dataset_sources": {
+    "current_3M_file": "examples/datasets/ultimate_3M_intelligently_duplicated.jsonl",
+    "phase_2_generation_command": "python create_3m_with_duplication.py --input examples/datasets/*.jsonl --output examples/datasets/ultimate_4.5M_phase2.jsonl --target-size 4500000"
+  }
+}
